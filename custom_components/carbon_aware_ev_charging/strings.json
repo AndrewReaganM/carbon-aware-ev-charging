@@ -1,0 +1,86 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Carbon-Aware EV Charging — Sensors",
+        "description": "Enter the entity IDs for your CO2 and charger sensors.",
+        "data": {
+          "co2_sensor": "CO2 Intensity Sensor",
+          "fossil_sensor": "Fossil Fuel % Sensor",
+          "charger_switch": "Charger Switch",
+          "charger_connected_attr": "Charger 'Connected' Attribute Name",
+          "charger_not_connected_value": "Attribute Value When Car is NOT Connected",
+          "charger_power_sensor": "Charger Power Sensor (optional)"
+        },
+        "data_description": {
+          "co2_sensor": "e.g. sensor.32_79_96_48_co2_intensity (from Electricity Maps)",
+          "fossil_sensor": "e.g. sensor.32_79_96_48_grid_fossil_fuel_percentage",
+          "charger_switch": "The switch entity that controls your EV charger.",
+          "charger_connected_attr": "Attribute on the charger switch that indicates connection state. Default: icon_name",
+          "charger_not_connected_value": "The attribute value when the car is NOT plugged in. Default: CarNotConnected",
+          "charger_power_sensor": "Optional sensor providing charger power in watts (for the kW entity)."
+        }
+      },
+      "led": {
+        "title": "Carbon-Aware EV Charging — LED Indicator",
+        "description": "Optionally configure an RGB LED light to show charging state. Leave blank to skip.",
+        "data": {
+          "led_light": "RGB Indicator Light (optional)",
+          "led_effect_select": "LED Effect Selector (optional)"
+        },
+        "data_description": {
+          "led_light": "e.g. light.garage_lights_rgb_indicator",
+          "led_effect_select": "e.g. select.garage_lights_led_effect"
+        }
+      },
+      "prefs": {
+        "title": "Carbon-Aware EV Charging — Preferences",
+        "data": {
+          "carbon_mode": "Carbon Sensitivity Mode",
+          "departure_hour": "Departure Prep Start Hour",
+          "departure_days": "Departure Days",
+          "dry_run": "Dry Run (log only — do not switch charger)",
+          "notify_service": "Push Notification Service (optional)"
+        },
+        "data_description": {
+          "carbon_mode": "Lenient charges ~82% of hours; Moderate ~68%; Strict ~43%.",
+          "departure_hour": "Hour (0-23) after which departure-prep charging activates on selected days.",
+          "departure_days": "Days of the week when departure-prep logic applies.",
+          "dry_run": "Enable to test logic without actually controlling the charger.",
+          "notify_service": "Full service name, e.g. notify.mobile_app_my_iphone. Leave blank to disable."
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entity not found — check the entity ID and try again.",
+      "invalid_notify_service": "Must be in the form notify.service_name (e.g. notify.mobile_app_my_iphone)."
+    },
+    "abort": {
+      "already_configured": "Carbon-Aware EV Charging is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Carbon-Aware EV Charging — Options",
+        "data": {
+          "carbon_mode": "Carbon Sensitivity Mode",
+          "departure_hour": "Departure Prep Start Hour",
+          "departure_days": "Departure Days",
+          "dry_run": "Dry Run (log only — do not switch charger)",
+          "notify_service": "Push Notification Service (optional)"
+        },
+        "data_description": {
+          "carbon_mode": "Lenient charges ~82% of hours; Moderate ~68%; Strict ~43%.",
+          "departure_hour": "Hour (0–23) after which departure-prep charging activates on selected days.",
+          "departure_days": "Days of the week when departure-prep logic applies.",
+          "dry_run": "Enable to test logic without actually controlling the charger.",
+          "notify_service": "Full service name, e.g. notify.mobile_app_my_iphone. Leave blank to disable."
+        }
+      }
+    },
+    "error": {
+      "invalid_notify_service": "Must be in the form notify.service_name (e.g. notify.mobile_app_my_iphone)."
+    }
+  }
+}

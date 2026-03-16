@@ -1,0 +1,25 @@
+[project]
+name = "ev-carbon-charger"
+version = "0.1.0"
+description = "HACS custom integration: EV carbon-optimised charging for Home Assistant"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-homeassistant-custom-component",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.3",
+    "pytest-asyncio>=0.24.0",
+    "pytest-homeassistant-custom-component>=0.13.195",
+]

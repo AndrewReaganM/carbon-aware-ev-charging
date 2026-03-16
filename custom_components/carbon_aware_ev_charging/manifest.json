@@ -1,0 +1,12 @@
+{
+  "domain": "carbon_aware_ev_charging",
+  "name": "Carbon-Aware EV Charging",
+  "version": "0.1.0",
+  "config_flow": true,
+  "iot_class": "local_polling",
+  "dependencies": [],
+  "requirements": [],
+  "codeowners": [],
+  "documentation": "https://github.com/andrewmassey/ev-carbon-charger",
+  "issue_tracker": "https://github.com/andrewmassey/ev-carbon-charger/issues"
+}

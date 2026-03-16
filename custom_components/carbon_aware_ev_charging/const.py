@@ -1,0 +1,85 @@
+"""Constants for the Carbon-Aware EV Charging integration."""
+
+DOMAIN = "carbon_aware_ev_charging"
+
+# ── Config entry keys (entity IDs — stored in entry.data) ────────────────────
+CONF_CO2_SENSOR = "co2_sensor"
+CONF_FOSSIL_SENSOR = "fossil_sensor"
+CONF_CHARGER_SWITCH = "charger_switch"
+CONF_CHARGER_CONNECTED_ATTR = "charger_connected_attr"
+CONF_CHARGER_NOT_CONNECTED_VALUE = "charger_not_connected_value"
+CONF_CHARGER_POWER_SENSOR = "charger_power_sensor"
+CONF_LED_LIGHT = "led_light"
+CONF_LED_EFFECT_SELECT = "led_effect_select"
+
+# ── Config entry keys (preferences — stored in entry.options) ─────────────────
+CONF_CARBON_MODE = "carbon_mode"
+CONF_CHARGE_MODE = "charge_mode"
+CONF_DEPARTURE_HOUR = "departure_hour"
+CONF_DEPARTURE_DAYS = "departure_days"
+CONF_DRY_RUN = "dry_run"
+CONF_NOTIFY_SERVICE = "notify_service"
+
+# ── Carbon sensitivity modes ──────────────────────────────────────────────────
+CARBON_MODE_LENIENT = "Lenient"
+CARBON_MODE_MODERATE = "Moderate"
+CARBON_MODE_STRICT = "Strict"
+CARBON_MODES = [CARBON_MODE_LENIENT, CARBON_MODE_MODERATE, CARBON_MODE_STRICT]
+
+# Z-score thresholds per mode (normal-distribution rank in parens)
+THRESHOLD_LENIENT = 0.92   # ~82 % of hours pass
+THRESHOLD_MODERATE = 0.47  # ~68 % of hours pass
+THRESHOLD_STRICT = -0.18   # ~43 % of hours pass
+
+THRESHOLDS: dict[str, float] = {
+    CARBON_MODE_LENIENT: THRESHOLD_LENIENT,
+    CARBON_MODE_MODERATE: THRESHOLD_MODERATE,
+    CARBON_MODE_STRICT: THRESHOLD_STRICT,
+}
+
+# Extra σ added to threshold when charger is already running (prevents flapping)
+HYSTERESIS_SIGMA = 0.4
+
+# Fossil fuel hard floor — gate stays closed above this %
+FOSSIL_HARD_FLOOR = 75.0
+
+# Statistics warmup guards (prevents extreme Z-scores on reload)
+STATS_WARMUP_MIN_STDEV = 5.0
+STATS_WARMUP_MIN_MEAN = 50.0
+
+# Rolling deque sizes (5-minute poll cadence)
+READINGS_PER_DAY = 288
+DEQUE_7D = 7 * READINGS_PER_DAY    # 2 016
+DEQUE_30D = 30 * READINGS_PER_DAY  # 8 640
+
+# Minimum charger dwell time before turning off (minutes)
+MIN_DWELL_MINUTES = 15
+
+# ── Charge modes ──────────────────────────────────────────────────────────────
+CHARGE_MODE_AUTO = "auto"
+CHARGE_MODE_FORCE_ON = "force_on"
+CHARGE_MODE_FORCE_OFF = "force_off"
+CHARGE_MODES = [CHARGE_MODE_AUTO, CHARGE_MODE_FORCE_ON, CHARGE_MODE_FORCE_OFF]
+
+# ── Predicted charging states ─────────────────────────────────────────────────
+STATE_CARBON = "carbon"
+STATE_SCHEDULED = "scheduled"
+STATE_OVERRIDE = "override"
+STATE_PAUSED = "paused"
+
+CHARGEABLE_STATES = (STATE_CARBON, STATE_SCHEDULED, STATE_OVERRIDE)
+
+# ── LED HS colours per state ──────────────────────────────────────────────────
+LED_COLOUR: dict[str, list[int]] = {
+    STATE_CARBON: [120, 80],
+    STATE_OVERRIDE: [35, 100],
+    STATE_SCHEDULED: [0, 100],
+    STATE_PAUSED: [0, 100],
+}
+
+# ── Persistent storage ────────────────────────────────────────────────────────
+STORAGE_KEY = f"{DOMAIN}.rolling_stats"
+STORAGE_VERSION = 1
+
+# ── HA platform list ──────────────────────────────────────────────────────────
+PLATFORMS = ["sensor", "binary_sensor", "select", "number"]

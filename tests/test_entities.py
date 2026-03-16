@@ -1,0 +1,292 @@
+"""Unit tests for all entity platforms (sensor, binary_sensor, select, number).
+
+Entities are instantiated with mock coordinators so these tests run without a
+full HA instance. They focus on property correctness and state-mutation methods.
+"""
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock, call
+
+import pytest
+
+from custom_components.carbon_aware_ev_charging.binary_sensor import EvConnectedBinarySensor
+from custom_components.carbon_aware_ev_charging.const import (
+    CARBON_MODE_MODERATE,
+    CARBON_MODE_STRICT,
+    CARBON_MODES,
+    CHARGE_MODE_AUTO,
+    CHARGE_MODE_FORCE_ON,
+    CHARGE_MODES,
+    CONF_CARBON_MODE,
+    CONF_CHARGE_MODE,
+    CONF_DEPARTURE_HOUR,
+    STATE_CARBON,
+    STATE_PAUSED,
+)
+from custom_components.carbon_aware_ev_charging.coordinator import EVCarbonData
+from custom_components.carbon_aware_ev_charging.number import EvDepartureHourNumber
+from custom_components.carbon_aware_ev_charging.select import EvCarbonModeSelect, EvChargeModeSelect
+from custom_components.carbon_aware_ev_charging.sensor import (
+    EvChargeCurrentSensor,
+    EvChargeRateKwSensor,
+    EvLowCarbonNowSensor,
+    EvZScoreSensor,
+)
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+
+def _coord(data: EVCarbonData, success: bool = True) -> MagicMock:
+    coord = MagicMock()
+    coord.data = data
+    coord.last_update_success = success
+    coord.async_request_refresh = AsyncMock()
+    return coord
+
+
+def _entry(options: dict | None = None, entry_id: str = "test") -> MagicMock:
+    entry = MagicMock()
+    entry.entry_id = entry_id
+    entry.options = options or {}
+    return entry
+
+
+# ── EvZScoreSensor ─────────────────────────────────────────────────────────────
+
+
+def test_z_score_sensor_value_and_available() -> None:
+    data = EVCarbonData(z_score=-0.50, mean_7d=200.0, stdev_7d=8.66, co2=155.0)
+    sensor = EvZScoreSensor(_coord(data), _entry())
+
+    assert sensor.native_value == pytest.approx(-0.50)
+    assert sensor.available is True
+
+
+def test_z_score_sensor_unavailable_when_none() -> None:
+    data = EVCarbonData(z_score=None)
+    sensor = EvZScoreSensor(_coord(data), _entry())
+
+    assert sensor.available is False
+
+
+def test_z_score_sensor_unavailable_when_coordinator_failed() -> None:
+    data = EVCarbonData(z_score=-0.3)
+    sensor = EvZScoreSensor(_coord(data, success=False), _entry())
+
+    assert sensor.available is False
+
+
+def test_z_score_sensor_extra_attrs() -> None:
+    data = EVCarbonData(
+        z_score=0.10,
+        mean_7d=200.0,
+        stdev_7d=9.0,
+        mean_30d=195.0,
+        stdev_30d=11.0,
+        co2=201.0,
+    )
+    sensor = EvZScoreSensor(_coord(data), _entry())
+    attrs = sensor.extra_state_attributes
+
+    assert attrs["mean_7d"] == pytest.approx(200.0)
+    assert attrs["stdev_7d"] == pytest.approx(9.0)
+    assert attrs["mean_30d"] == pytest.approx(195.0)
+    assert attrs["co2"] == pytest.approx(201.0)
+
+
+# ── EvLowCarbonNowSensor ───────────────────────────────────────────────────────
+
+
+def test_low_carbon_now_true() -> None:
+    data = EVCarbonData(carbon_good=True, predicted_state=STATE_CARBON)
+    sensor = EvLowCarbonNowSensor(_coord(data), _entry())
+
+    assert sensor.native_value == "True"
+
+
+def test_low_carbon_now_false() -> None:
+    data = EVCarbonData(carbon_good=False, predicted_state=STATE_PAUSED)
+    sensor = EvLowCarbonNowSensor(_coord(data), _entry())
+
+    assert sensor.native_value == "False"
+
+
+def test_low_carbon_now_always_available() -> None:
+    """Should never be 'unavailable' — returns False during warmup instead."""
+    data = EVCarbonData(carbon_good=False)
+    sensor = EvLowCarbonNowSensor(_coord(data, success=False), _entry())
+
+    assert sensor.available is True
+    assert sensor.native_value == "False"
+
+
+def test_low_carbon_now_extra_attrs() -> None:
+    data = EVCarbonData(
+        carbon_good=False,
+        predicted_state=STATE_PAUSED,
+        should_charge=False,
+        carbon_data_unavailable=True,
+        fossil_pct=55.0,
+    )
+    sensor = EvLowCarbonNowSensor(_coord(data), _entry())
+    attrs = sensor.extra_state_attributes
+
+    assert attrs["predicted_state"] == STATE_PAUSED
+    assert attrs["should_charge"] is False
+    assert attrs["carbon_data_unavailable"] is True
+    assert attrs["fossil_pct"] == pytest.approx(55.0)
+
+
+# ── EvChargeRateKwSensor ───────────────────────────────────────────────────────
+
+
+def test_charge_rate_kw_value() -> None:
+    data = EVCarbonData(charge_rate_kw=6.9)
+    sensor = EvChargeRateKwSensor(_coord(data), _entry())
+
+    assert sensor.native_value == pytest.approx(6.9)
+    assert sensor.available is True
+
+
+def test_charge_rate_kw_unavailable_when_none() -> None:
+    data = EVCarbonData(charge_rate_kw=None)
+    sensor = EvChargeRateKwSensor(_coord(data), _entry())
+
+    assert sensor.available is False
+
+
+# ── EvChargeCurrentSensor ──────────────────────────────────────────────────────
+
+
+def test_charge_current_value() -> None:
+    data = EVCarbonData(charge_current_a=16)
+    sensor = EvChargeCurrentSensor(_coord(data), _entry())
+
+    assert sensor.native_value == 16
+    assert sensor.available is True
+
+
+def test_charge_current_unavailable_when_none() -> None:
+    data = EVCarbonData(charge_current_a=None)
+    sensor = EvChargeCurrentSensor(_coord(data), _entry())
+
+    assert sensor.available is False
+
+
+# ── EvConnectedBinarySensor ────────────────────────────────────────────────────
+
+
+def test_ev_connected_on() -> None:
+    data = EVCarbonData(is_connected=True)
+    bs = EvConnectedBinarySensor(_coord(data), _entry())
+
+    assert bs.is_on is True
+
+
+def test_ev_connected_off() -> None:
+    data = EVCarbonData(is_connected=False)
+    bs = EvConnectedBinarySensor(_coord(data), _entry())
+
+    assert bs.is_on is False
+
+
+def test_ev_connected_off_when_coordinator_failed() -> None:
+    data = EVCarbonData(is_connected=True)  # data says True
+    bs = EvConnectedBinarySensor(_coord(data, success=False), _entry())
+
+    assert bs.is_on is False  # returns False when update failed
+
+
+# ── EvChargeModeSelect ─────────────────────────────────────────────────────────
+
+
+def test_charge_mode_select_options() -> None:
+    select = EvChargeModeSelect(_coord(EVCarbonData()), _entry())
+    assert select.options == CHARGE_MODES
+
+
+def test_charge_mode_select_current_option_default() -> None:
+    select = EvChargeModeSelect(_coord(EVCarbonData()), _entry())
+    assert select.current_option == CHARGE_MODE_AUTO
+
+
+def test_charge_mode_select_current_option_from_entry() -> None:
+    entry = _entry({CONF_CHARGE_MODE: CHARGE_MODE_FORCE_ON})
+    select = EvChargeModeSelect(_coord(EVCarbonData()), entry)
+    assert select.current_option == CHARGE_MODE_FORCE_ON
+
+
+async def test_charge_mode_select_async_select() -> None:
+    coord = _coord(EVCarbonData())
+    entry = _entry({CONF_CHARGE_MODE: CHARGE_MODE_AUTO})
+    select = EvChargeModeSelect(coord, entry)
+    select.hass = MagicMock()
+    select.hass.config_entries.async_update_entry = MagicMock()
+
+    await select.async_select_option(CHARGE_MODE_FORCE_ON)
+
+    update_call = select.hass.config_entries.async_update_entry.call_args
+    assert update_call.kwargs["options"][CONF_CHARGE_MODE] == CHARGE_MODE_FORCE_ON
+    coord.async_request_refresh.assert_called_once()
+
+
+# ── EvCarbonModeSelect ─────────────────────────────────────────────────────────
+
+
+def test_carbon_mode_select_options() -> None:
+    select = EvCarbonModeSelect(_coord(EVCarbonData()), _entry())
+    assert select.options == CARBON_MODES
+
+
+def test_carbon_mode_select_default() -> None:
+    select = EvCarbonModeSelect(_coord(EVCarbonData()), _entry())
+    assert select.current_option == CARBON_MODE_MODERATE
+
+
+async def test_carbon_mode_select_async_select() -> None:
+    coord = _coord(EVCarbonData())
+    entry = _entry({CONF_CARBON_MODE: CARBON_MODE_MODERATE})
+    select = EvCarbonModeSelect(coord, entry)
+    select.hass = MagicMock()
+    select.hass.config_entries.async_update_entry = MagicMock()
+
+    await select.async_select_option(CARBON_MODE_STRICT)
+
+    update_call = select.hass.config_entries.async_update_entry.call_args
+    assert update_call.kwargs["options"][CONF_CARBON_MODE] == CARBON_MODE_STRICT
+    coord.async_request_refresh.assert_called_once()
+
+
+# ── EvDepartureHourNumber ──────────────────────────────────────────────────────
+
+
+def test_departure_hour_default_value() -> None:
+    number = EvDepartureHourNumber(_coord(EVCarbonData()), _entry())
+    assert number.native_value == pytest.approx(5.0)
+
+
+def test_departure_hour_value_from_entry() -> None:
+    entry = _entry({CONF_DEPARTURE_HOUR: 7})
+    number = EvDepartureHourNumber(_coord(EVCarbonData()), entry)
+    assert number.native_value == pytest.approx(7.0)
+
+
+def test_departure_hour_min_max() -> None:
+    number = EvDepartureHourNumber(_coord(EVCarbonData()), _entry())
+    assert number.native_min_value == 0
+    assert number.native_max_value == 23
+
+
+async def test_departure_hour_set_value() -> None:
+    coord = _coord(EVCarbonData())
+    entry = _entry({CONF_DEPARTURE_HOUR: 5})
+    number = EvDepartureHourNumber(coord, entry)
+    number.hass = MagicMock()
+    number.hass.config_entries.async_update_entry = MagicMock()
+
+    await number.async_set_native_value(8.0)
+
+    update_call = number.hass.config_entries.async_update_entry.call_args
+    assert update_call.kwargs["options"][CONF_DEPARTURE_HOUR] == 8
+    coord.async_request_refresh.assert_called_once()
