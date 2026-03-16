@@ -43,10 +43,6 @@ HYSTERESIS_SIGMA = 0.4
 # Fossil fuel hard floor — gate stays closed above this %
 FOSSIL_HARD_FLOOR = 75.0
 
-# Statistics warmup guards (prevents extreme Z-scores on reload)
-STATS_WARMUP_MIN_STDEV = 5.0
-STATS_WARMUP_MIN_MEAN = 50.0
-
 # Rolling deque sizes (5-minute poll cadence)
 READINGS_PER_DAY = 288
 DEQUE_7D = 7 * READINGS_PER_DAY    # 2 016

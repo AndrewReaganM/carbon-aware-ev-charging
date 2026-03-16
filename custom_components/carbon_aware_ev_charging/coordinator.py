@@ -45,8 +45,6 @@ from .const import (
     STATE_OVERRIDE,
     STATE_PAUSED,
     STATE_SCHEDULED,
-    STATS_WARMUP_MIN_MEAN,
-    STATS_WARMUP_MIN_STDEV,
     STORAGE_KEY,
     STORAGE_VERSION,
     THRESHOLDS,
@@ -157,6 +155,14 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         fossil_pct: float | None = None
         carbon_data_unavailable = True
 
+        _LOGGER.debug(
+            "[EV] raw sensor states: co2_entity=%s state=%r  "
+            "fossil_entity=%s state=%r  charger_entity=%s state=%r",
+            co2_entity, co2_state.state if co2_state else "MISSING",
+            fossil_entity, fossil_state.state if fossil_state else "MISSING",
+            charger_entity, charger_state.state if charger_state else "MISSING",
+        )
+
         if co2_state and co2_state.state not in _UNAVAILABLE:
             try:
                 co2 = float(co2_state.state)
@@ -221,17 +227,26 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             stdev_30d = statistics.stdev(vals_30d)
 
         # ── Z-score with reload-spike guard ───────────────────────────────────
+        _LOGGER.debug(
+            "[EV] z_score inputs: co2=%s mean_7d=%s stdev_7d=%s "
+            "mean_30d=%s stdev_30d=%s deque_7d_len=%d deque_30d_len=%d",
+            co2, mean_7d, stdev_7d, mean_30d, stdev_30d,
+            len(self._deque_7d), len(self._deque_30d),
+        )
         z_score: float | None = None
-        if (
-            co2 is not None
-            and mean_7d is not None
-            and stdev_7d is not None
-            and stdev_7d > STATS_WARMUP_MIN_STDEV
-            and mean_7d > STATS_WARMUP_MIN_MEAN
-        ):
-            z_score = round((co2 - mean_7d) / stdev_7d, 2)
+        if co2 is not None and mean_7d is not None:
+            if stdev_7d:
+                z_score = round((co2 - mean_7d) / stdev_7d, 2)
+            else:
+                # stdev=0 means all readings are identical — current value is
+                # exactly at the mean, so z_score is 0 by definition.
+                z_score = 0.0
             self._last_z_score = z_score
         else:
+            _LOGGER.debug(
+                "[EV] z_score blocked: co2_none=%s mean_none=%s — holding last=%s",
+                co2 is None, mean_7d is None, self._last_z_score,
+            )
             z_score = self._last_z_score  # hold last good value
 
         # ── Carbon gate (with hysteresis) ─────────────────────────────────────

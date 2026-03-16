@@ -1,7 +1,6 @@
 """Sensor entities for Carbon-Aware EV Charging."""
 from __future__ import annotations
 
-from functools import cached_property
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
@@ -40,7 +39,7 @@ class _EvBaseEntity(CoordinatorEntity[EVCarbonCoordinator]):
         super().__init__(coordinator)
         self._entry = entry
 
-    @cached_property
+    @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
@@ -66,7 +65,7 @@ class EvZScoreSensor(_EvBaseEntity, SensorEntity):
         self._attr_unique_id = f"{entry.entry_id}_co2_z_score"
         self._attr_name = "EV CO2 Z-Score"
 
-    @cached_property
+    @property
     def native_value(self) -> float | None:
         return self._data.z_score
 
@@ -77,7 +76,7 @@ class EvZScoreSensor(_EvBaseEntity, SensorEntity):
             and self._data.z_score is not None
         )
 
-    @cached_property
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {
             "mean_7d": self._data.mean_7d,
@@ -100,7 +99,7 @@ class EvLowCarbonNowSensor(_EvBaseEntity, SensorEntity):
         self._attr_unique_id = f"{entry.entry_id}_ev_low_carbon_now"
         self._attr_name = "EV Low Carbon Now"
 
-    @cached_property
+    @property
     def native_value(self) -> str:
         if not self.coordinator.last_update_success:
             return "False"
@@ -111,7 +110,7 @@ class EvLowCarbonNowSensor(_EvBaseEntity, SensorEntity):
         # Always available — returns False during warmup instead of unavailable.
         return True
 
-    @cached_property
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {
             "predicted_state": self._data.predicted_state,
@@ -136,7 +135,7 @@ class EvChargeRateKwSensor(_EvBaseEntity, SensorEntity):
         self._attr_unique_id = f"{entry.entry_id}_ev_charge_rate_kw"
         self._attr_name = "EV Charge Rate"
 
-    @cached_property
+    @property
     def native_value(self) -> float | None:
         return self._data.charge_rate_kw
 
@@ -163,7 +162,7 @@ class EvChargeCurrentSensor(_EvBaseEntity, SensorEntity):
         self._attr_unique_id = f"{entry.entry_id}_ev_charge_current"
         self._attr_name = "EV Charge Current"
 
-    @cached_property
+    @property
     def native_value(self) -> int | None:
         return self._data.charge_current_a
 
