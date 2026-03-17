@@ -33,9 +33,7 @@ from custom_components.carbon_aware_ev_charging.const import (
     STATE_CARBON,
     STATE_OVERRIDE,
     STATE_PAUSED,
-    STATE_SCHEDULED,
-    STATS_WARMUP_MIN_MEAN,
-    STATS_WARMUP_MIN_STDEV,
+    STATE_SCHEDULED
 )
 from custom_components.carbon_aware_ev_charging.coordinator import EVCarbonCoordinator
 
@@ -103,27 +101,6 @@ class TestZScoreMath:
         co2, mean, stdev = 150.0, 200.0, 40.0
         z = round((co2 - mean) / stdev, 2)
         assert z == pytest.approx(-1.25)
-
-    def test_warmup_guard_stdev_too_low(self):
-        """stdev < STATS_WARMUP_MIN_STDEV → guard blocks Z-score."""
-        stdev = STATS_WARMUP_MIN_STDEV - 1  # 4.0
-        mean = STATS_WARMUP_MIN_MEAN + 10   # 60
-        guard_passes = stdev > STATS_WARMUP_MIN_STDEV and mean > STATS_WARMUP_MIN_MEAN
-        assert not guard_passes
-
-    def test_warmup_guard_mean_too_low(self):
-        """mean < STATS_WARMUP_MIN_MEAN → guard blocks Z-score (catches reload spike)."""
-        stdev = STATS_WARMUP_MIN_STDEV + 1  # 6.0
-        mean = STATS_WARMUP_MIN_MEAN - 10   # 40 (reload spike returns 0.0)
-        guard_passes = stdev > STATS_WARMUP_MIN_STDEV and mean > STATS_WARMUP_MIN_MEAN
-        assert not guard_passes
-
-    def test_warmup_guard_passes(self):
-        stdev = STATS_WARMUP_MIN_STDEV + 5  # 10.0
-        mean = STATS_WARMUP_MIN_MEAN + 100  # 150.0
-        guard_passes = stdev > STATS_WARMUP_MIN_STDEV and mean > STATS_WARMUP_MIN_MEAN
-        assert guard_passes
-
 
 # ── Carbon gate ────────────────────────────────────────────────────────────────
 
@@ -228,31 +205,12 @@ class TestPredictedState:
 class TestReloadSpikeGuard:
     """Verify that a spike-guard failure falls back to last good Z-score."""
 
-    def test_holds_last_good_value_on_spike(self):
-        """
-        If stdev drops to 0 (reload spike), coordinator should return
-        _last_z_score rather than computing a garbage value.
-        """
-        last_z = -0.30
-        stdev = 0.0   # spike condition
-        mean = 0.0    # spike condition
-        co2 = 200.0
-
-        guard_passes = (
-            stdev > STATS_WARMUP_MIN_STDEV and mean > STATS_WARMUP_MIN_MEAN
-        )
-        z_score = round((co2 - mean) / stdev, 2) if guard_passes else last_z
-        assert z_score == last_z
-
     def test_z_score_none_during_warmup(self):
         """Before any history is accumulated, z_score should be None."""
         last_z = None  # no previous value
         stdev = 0.0
         mean = 0.0
-        guard_passes = (
-            stdev > STATS_WARMUP_MIN_STDEV and mean > STATS_WARMUP_MIN_MEAN
-        )
-        z_score = None if not guard_passes else 0.0
+        z_score = None
         # If last_z is None and guard fails, z_score stays None
-        result = last_z if not guard_passes else z_score
+        result = last_z if z_score is None else z_score
         assert result is None

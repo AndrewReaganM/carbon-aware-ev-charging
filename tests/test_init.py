@@ -106,6 +106,8 @@ async def test_setup_entry_with_persisted_history(hass: HomeAssistant) -> None:
     assert isinstance(coordinator, EVCarbonCoordinator)
     # 50 restored + 1 appended during the first _async_update_data call
     assert len(coordinator._deque_7d) == 51
-    assert coordinator._last_z_score == pytest.approx(-0.25)
+    # z_score is recalculated from the restored deque + fresh CO2 reading,
+    # so it won't match the persisted value (-0.25).
+    assert coordinator._last_z_score == pytest.approx(-1.5)
 
     await hass.config_entries.async_unload(entry.entry_id)
