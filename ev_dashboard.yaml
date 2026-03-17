@@ -1,0 +1,136 @@
+# EV Charging Dashboard — Carbon-Aware EV Charging Integration
+# ─────────────────────────────────────────────────────────────────────────────
+# BEFORE USING: Replace the three placeholder entity IDs below with your own.
+#   1. YOUR_CO2_SENSOR        → your CO₂ intensity sensor
+#   2. YOUR_FOSSIL_SENSOR     → your fossil fuel % sensor
+#   3. YOUR_CHARGER_SWITCH    → your charger switch entity
+#
+# To install: Settings → Dashboards → Add Dashboard → choose "From YAML",
+# then paste this file's contents.
+# ─────────────────────────────────────────────────────────────────────────────
+
+title: EV Charging
+views:
+  - title: Overview
+    path: ev
+    icon: mdi:ev-station
+    cards:
+
+      # ── Current Status ────────────────────────────────────────────────────
+      - type: glance
+        title: Current Status
+        show_state: true
+        entities:
+          - entity: select.ev_charge_mode
+            name: Mode
+          - entity: binary_sensor.ev_connected
+            name: Car
+          - entity: YOUR_CHARGER_SWITCH   # ← replace with your charger switch
+            name: Charger
+          - entity: sensor.ev_low_carbon_now
+            name: Carbon OK
+            icon: mdi:leaf
+
+      # ── Charging Session ─────────────────────────────────────────────────
+      - type: glance
+        title: Charging Session
+        show_state: true
+        entities:
+          # Remove ev_charge_rate if you did not configure a power sensor.
+          - entity: sensor.ev_charge_rate
+            name: Charge Rate
+            icon: mdi:lightning-bolt
+          - entity: sensor.ev_charge_current
+            name: Amps
+            icon: mdi:current-ac
+
+      # ── Carbon Signal Gauges ─────────────────────────────────────────────
+      - type: vertical-stack
+        cards:
+          - type: gauge
+            title: CO2 Z-Score
+            entity: sensor.ev_co2_z_score
+            min: -3
+            max: 3
+            needle: true
+            severity:
+              green: -3     # cleaner than Strict threshold (-0.18σ)
+              yellow: -0.18 # Strict–Moderate band
+              red: 0.92     # above Lenient threshold
+
+          - type: gauge
+            title: CO2 Intensity
+            entity: YOUR_CO2_SENSOR   # ← replace with your CO₂ sensor
+            unit: gCO₂/kWh
+            min: 0
+            max: 600
+            needle: true
+            severity:
+              green: 0
+              yellow: 250
+              red: 400
+
+          - type: gauge
+            title: Fossil Fuel %
+            entity: YOUR_FOSSIL_SENSOR   # ← replace with your fossil % sensor
+            unit: "%"
+            min: 0
+            max: 100
+            needle: true
+            severity:
+              green: 0
+              yellow: 50
+              red: 75
+
+      # ── CO2 Intensity History ────────────────────────────────────────────
+      - type: history-graph
+        title: CO2 Intensity (48h)
+        hours_to_show: 48
+        entities:
+          - entity: YOUR_CO2_SENSOR   # ← replace with your CO₂ sensor
+            name: CO2 Intensity
+
+      # ── Z-Score History ──────────────────────────────────────────────────
+      - type: history-graph
+        title: CO2 Z-Score (48h)
+        hours_to_show: 48
+        entities:
+          - entity: sensor.ev_co2_z_score
+            name: Z-Score
+
+      # ── 30-Day CO2 Trend ─────────────────────────────────────────────────
+      - type: statistics-graph
+        title: CO2 Intensity – 30 Day Trend
+        days_to_show: 30
+        period: day
+        stat_types:
+          - mean
+          - min
+          - max
+        entities:
+          - entity: YOUR_CO2_SENSOR   # ← replace with your CO₂ sensor
+            name: CO2 Intensity
+
+      # ── 30-Day Z-Score Trend ─────────────────────────────────────────────
+      - type: statistics-graph
+        title: CO2 Z-Score – 30 Day Trend
+        days_to_show: 30
+        period: day
+        stat_types:
+          - mean
+          - min
+          - max
+        entities:
+          - entity: sensor.ev_co2_z_score
+            name: Z-Score
+
+      # ── Controls ─────────────────────────────────────────────────────────
+      - type: entities
+        title: Controls
+        entities:
+          - entity: select.ev_charge_mode
+            name: Charge Mode
+          - entity: select.ev_carbon_sensitivity
+            name: Carbon Sensitivity
+          - entity: number.ev_departure_hour
+            name: Departure Prep Hour

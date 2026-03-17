@@ -190,6 +190,228 @@ Enable **Dry Run** in the integration options to have the integration evaluate a
 
 ---
 
+## Example Dashboard
+
+A ready-made dashboard is included in [`ev_dashboard.yaml`](ev_dashboard.yaml). It provides status glances, Z-score and CO₂ gauges, 48-hour history graphs, an optional Plotly charge-window overlay, and 30-day trend cards.
+
+**To install:** Go to **Settings → Dashboards → Add Dashboard**, choose "From YAML", and paste the contents of the file. Replace the three placeholder entity IDs (`YOUR_CO2_SENSOR`, `YOUR_FOSSIL_SENSOR`, `YOUR_CHARGER_SWITCH`) with your own entities.
+
+<details>
+<summary>Dashboard YAML</summary>
+
+```yaml
+# EV Charging Dashboard — Carbon-Aware EV Charging Integration
+# ─────────────────────────────────────────────────────────────────────────────
+# BEFORE USING: Replace the three placeholder entity IDs below with your own.
+#   1. YOUR_CO2_SENSOR        → your CO₂ intensity sensor
+#   2. YOUR_FOSSIL_SENSOR     → your fossil fuel % sensor
+#   3. YOUR_CHARGER_SWITCH    → your charger switch entity
+#
+# To install: Settings → Dashboards → Add Dashboard → choose "From YAML",
+# then paste this file's contents.
+# ─────────────────────────────────────────────────────────────────────────────
+
+title: EV Charging
+views:
+  - title: Overview
+    path: ev
+    icon: mdi:ev-station
+    cards:
+
+      # ── Current Status ────────────────────────────────────────────────────
+      - type: glance
+        title: Current Status
+        show_state: true
+        entities:
+          - entity: select.ev_charge_mode
+            name: Mode
+          - entity: binary_sensor.ev_connected
+            name: Car
+          - entity: YOUR_CHARGER_SWITCH   # ← replace with your charger switch
+            name: Charger
+          - entity: sensor.ev_low_carbon_now
+            name: Carbon OK
+            icon: mdi:leaf
+
+      # ── Charging Session ─────────────────────────────────────────────────
+      - type: glance
+        title: Charging Session
+        show_state: true
+        entities:
+          # Remove ev_charge_rate if you did not configure a power sensor.
+          - entity: sensor.ev_charge_rate
+            name: Charge Rate
+            icon: mdi:lightning-bolt
+          - entity: sensor.ev_charge_current
+            name: Amps
+            icon: mdi:current-ac
+
+      # ── Carbon Signal Gauges ─────────────────────────────────────────────
+      - type: vertical-stack
+        cards:
+          - type: gauge
+            title: CO2 Z-Score
+            entity: sensor.ev_co2_z_score
+            min: -3
+            max: 3
+            needle: true
+            severity:
+              green: -3     # cleaner than Strict threshold (-0.18σ)
+              yellow: -0.18 # Strict–Moderate band
+              red: 0.92     # above Lenient threshold
+
+          - type: gauge
+            title: CO2 Intensity
+            entity: YOUR_CO2_SENSOR   # ← replace with your CO₂ sensor
+            unit: gCO₂/kWh
+            min: 0
+            max: 600
+            needle: true
+            severity:
+              green: 0
+              yellow: 250
+              red: 400
+
+          - type: gauge
+            title: Fossil Fuel %
+            entity: YOUR_FOSSIL_SENSOR   # ← replace with your fossil % sensor
+            unit: "%"
+            min: 0
+            max: 100
+            needle: true
+            severity:
+              green: 0
+              yellow: 50
+              red: 75
+
+      # ── CO2 Intensity History ────────────────────────────────────────────
+      - type: history-graph
+        title: CO2 Intensity (48h)
+        hours_to_show: 48
+        entities:
+          - entity: YOUR_CO2_SENSOR   # ← replace with your CO₂ sensor
+            name: CO2 Intensity
+
+      # ── Z-Score History ──────────────────────────────────────────────────
+      - type: history-graph
+        title: CO2 Z-Score (48h)
+        hours_to_show: 48
+        entities:
+          - entity: sensor.ev_co2_z_score
+            name: Z-Score
+
+      # ── Charge Window History (optional — requires custom:plotly-graph) ──
+      # Install plotly-graph from HACS Frontend to use this card.
+      # Green fill = carbon gate open, blue = Z-score, orange = charger on/off.
+      - type: custom:plotly-graph
+        title: Charge Windows (48h)
+        hours_to_show: 48
+        refresh_interval: 300
+        entities:
+          - entity: sensor.ev_low_carbon_now
+            name: Carbon OK
+            yaxis: y2
+            fill: tozeroy
+            fillcolor: "rgba(0,200,80,0.15)"
+            line:
+              color: "rgba(0,200,80,0.4)"
+              width: 1
+          - entity: sensor.ev_co2_z_score
+            name: Z-Score
+            yaxis: y
+            line:
+              color: "rgba(60,120,220,0.9)"
+              width: 2
+          - entity: YOUR_CHARGER_SWITCH   # ← replace with your charger switch
+            name: Charger
+            yaxis: y2
+            line:
+              color: "rgba(255,160,0,0.85)"
+              width: 2
+        layout:
+          yaxis:
+            range: [-3, 3]
+            title: Z-Score (σ)
+          yaxis2:
+            range: [0, 1.5]
+            overlaying: y
+            side: right
+            showgrid: false
+            showticklabels: false
+          shapes:
+            - type: line
+              x0: 0
+              x1: 1
+              xref: paper
+              y0: -0.18
+              y1: -0.18
+              line:
+                color: "rgba(50,200,80,0.6)"
+                width: 1
+                dash: dot
+            - type: line
+              x0: 0
+              x1: 1
+              xref: paper
+              y0: 0.47
+              y1: 0.47
+              line:
+                color: "rgba(255,160,0,0.6)"
+                width: 1
+                dash: dot
+            - type: line
+              x0: 0
+              x1: 1
+              xref: paper
+              y0: 0.92
+              y1: 0.92
+              line:
+                color: "rgba(220,60,60,0.6)"
+                width: 1
+                dash: dot
+
+      # ── 30-Day CO2 Trend ─────────────────────────────────────────────────
+      - type: statistics-graph
+        title: CO2 Intensity – 30 Day Trend
+        days_to_show: 30
+        period: day
+        stat_types:
+          - mean
+          - min
+          - max
+        entities:
+          - entity: YOUR_CO2_SENSOR   # ← replace with your CO₂ sensor
+            name: CO2 Intensity
+
+      # ── 30-Day Z-Score Trend ─────────────────────────────────────────────
+      - type: statistics-graph
+        title: CO2 Z-Score – 30 Day Trend
+        days_to_show: 30
+        period: day
+        stat_types:
+          - mean
+          - min
+          - max
+        entities:
+          - entity: sensor.ev_co2_z_score
+            name: Z-Score
+
+      # ── Controls ─────────────────────────────────────────────────────────
+      - type: entities
+        title: Controls
+        entities:
+          - entity: select.ev_charge_mode
+            name: Charge Mode
+          - entity: select.ev_carbon_sensitivity
+            name: Carbon Sensitivity
+          - entity: number.ev_departure_hour
+            name: Departure Prep Hour
+```
+
+</details>
+
+---
+
 ## Statistics Warmup
 
 The Z-score requires approximately **7 days of CO₂ data** before it becomes meaningful. During this warmup period:

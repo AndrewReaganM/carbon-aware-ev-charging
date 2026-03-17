@@ -91,21 +91,6 @@ be below 75% regardless of Z-score.
 
 ---
 
-## Z-Score Sensor Design Notes
-
-`sensor.co2_intensity_z_score` has two layers of protection against reload spikes:
-
-1. **Availability guard** — requires `stdev > 5` AND `mean > 50`. During HA YAML
-   reloads, statistics sensors briefly return `0` before loading history from the DB.
-   `mean > 50` catches `float("0")` passing the old `>= 0` guard; `stdev > 5`
-   catches near-zero transient values that would produce extreme Z-scores.
-
-2. **State guard** — the state template repeats the same check and falls back
-   to `this.state` (holds last good value) if inputs are implausible, because
-   availability and state templates are not evaluated atomically in HA.
-
----
-
 ## Dashboard Summary
 
 ### `ev_dashboard.yaml`
