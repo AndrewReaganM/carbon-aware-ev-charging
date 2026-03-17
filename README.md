@@ -416,8 +416,9 @@ views:
 
 The Z-score requires approximately **7 days of CO₂ data** before it becomes meaningful. During this warmup period:
 
-- If fewer than ~100 readings are available, or if the rolling standard deviation is below 5 g/kWh, the Z-score will report as unavailable.
-- The carbon gate defaults to `False` during warmup, so charging falls back to the scheduled windows.
+- The Z-score is computed as soon as 2 readings exist in the rolling window, but with very few data points the mean and standard deviation are not yet representative. If only 1 reading (or none) is available, the Z-score reports as unavailable.
+- When all readings are identical (stdev = 0), the Z-score is reported as `0.0` (exactly at the mean).
+- The carbon gate defaults to `False` while the Z-score is unavailable, so charging falls back to the scheduled windows (overnight and midday).
 - The 30-day statistics become accurate after 30 days but are used only for display; they do not affect charging decisions.
 
 ---
@@ -445,7 +446,7 @@ The Z-score requires approximately **7 days of CO₂ data** before it becomes me
 
 Bug reports and pull requests are welcome at [github.com/andrewreaganm/carbon-aware-ev-charging](https://github.com/andrewreaganm/carbon-aware-ev-charging).
 
-If you have tested this integration with a charger other than Emporia and it works, please open an issue to let us know so we can update the compatibility list.
+If you have tested this integration with a charger other than Emporia and it works, please open an issue to let us know so we can update the compatibility list. If it does not work, feel free to create an issue.
 
 ---
 
