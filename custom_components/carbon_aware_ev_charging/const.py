@@ -1,4 +1,7 @@
 """Constants for the Carbon-Aware EV Charging integration."""
+from __future__ import annotations
+
+from typing import Any
 
 DOMAIN = "carbon_aware_ev_charging"
 
@@ -83,6 +86,35 @@ STATE_PAUSED = "paused"
 
 CHARGEABLE_STATES = (STATE_CARBON, STATE_SCHEDULED, STATE_OVERRIDE)
 
+# ── Charging status enum values (for device_class: enum sensor) ───────────────
+STATUS_NOT_CONNECTED = "not_connected"
+STATUS_FORCED_OFF = "forced_off"
+STATUS_OVERRIDE = "override"
+STATUS_LOW_CARBON = "low_carbon"
+STATUS_DEPARTURE_PREP = "departure_prep"
+STATUS_FALLBACK = "fallback"
+STATUS_DATA_STALE = "data_stale"
+STATUS_WAITING_FOR_DATA = "waiting_for_data"
+STATUS_FOSSIL_HIGH = "fossil_high"
+STATUS_GRID_DIRTY = "grid_dirty"
+STATUS_UNAVAILABLE = "unavailable"
+STATUS_UNKNOWN = "unknown"
+
+CHARGING_STATUSES: list[str] = [
+    STATUS_NOT_CONNECTED,
+    STATUS_FORCED_OFF,
+    STATUS_OVERRIDE,
+    STATUS_LOW_CARBON,
+    STATUS_DEPARTURE_PREP,
+    STATUS_FALLBACK,
+    STATUS_DATA_STALE,
+    STATUS_WAITING_FOR_DATA,
+    STATUS_FOSSIL_HIGH,
+    STATUS_GRID_DIRTY,
+    STATUS_UNAVAILABLE,
+    STATUS_UNKNOWN,
+]
+
 # ── LED HS colours per state ──────────────────────────────────────────────────
 LED_COLOUR: dict[str, list[int]] = {
     STATE_CARBON: [120, 80],
@@ -97,3 +129,31 @@ STORAGE_VERSION = 1
 
 # ── HA platform list ──────────────────────────────────────────────────────────
 PLATFORMS = ["sensor", "binary_sensor", "select", "number", "switch"]
+
+# ── Day-of-week options for selectors ─────────────────────────────────────────
+DAY_OPTIONS: list[dict[str, str]] = [
+    {"value": "0", "label": "Monday"},
+    {"value": "1", "label": "Tuesday"},
+    {"value": "2", "label": "Wednesday"},
+    {"value": "3", "label": "Thursday"},
+    {"value": "4", "label": "Friday"},
+    {"value": "5", "label": "Saturday"},
+    {"value": "6", "label": "Sunday"},
+]
+
+# ── Preference defaults (options that are user-configurable) ──────────────────
+# Single source of truth for coordinator, config_flow, and entity files.
+PREFERENCE_DEFAULTS: dict[str, Any] = {
+    CONF_CARBON_MODE: CARBON_MODE_MODERATE,
+    CONF_CHARGE_MODE: CHARGE_MODE_AUTO,
+    CONF_DEPARTURE_HOUR: 5,
+    CONF_DEPARTURE_DAYS: ["0", "1", "2", "3", "4"],  # Mon–Fri
+    CONF_DRY_RUN: False,
+    CONF_NOTIFY_SERVICE: "",
+    CONF_FALLBACK_WINDOW_1_START: DEFAULT_FALLBACK_WINDOW_1_START,
+    CONF_FALLBACK_WINDOW_1_END: DEFAULT_FALLBACK_WINDOW_1_END,
+    CONF_FALLBACK_WINDOW_1_ENABLED: True,
+    CONF_FALLBACK_WINDOW_2_START: DEFAULT_FALLBACK_WINDOW_2_START,
+    CONF_FALLBACK_WINDOW_2_END: DEFAULT_FALLBACK_WINDOW_2_END,
+    CONF_FALLBACK_WINDOW_2_ENABLED: True,
+}
