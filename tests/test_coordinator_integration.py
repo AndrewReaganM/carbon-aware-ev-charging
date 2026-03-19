@@ -81,6 +81,7 @@ def _make_coord(
     coord._deque_7d = deque(_HISTORY, maxlen=DEQUE_7D)
     coord._deque_30d = deque(_HISTORY, maxlen=DEQUE_7D)
     coord._last_z_score = None
+    coord._was_connected = False
     coord.last_update_success = True
     return coord
 
@@ -237,8 +238,16 @@ async def test_co2_unavailable_outside_window(hass: HomeAssistant) -> None:
 
 
 async def test_charger_turned_on_not_dry_run(hass: HomeAssistant) -> None:
-    """dry_run=False + clean grid + car connected → switch.turn_on is called."""
+    """dry_run=False + clean grid + car connected + cooldown met → switch.turn_on is called."""
     _set_states(hass, co2="150", fossil="20")
+
+    # Backdate charger last_changed so cooldown is satisfied
+    from homeassistant.util import dt as real_dt
+
+    hass.states.get("switch.charger").last_changed = (
+        real_dt.utcnow() - timedelta(minutes=15)
+    )
+
     coord = _make_coord(hass, {CONF_DRY_RUN: False})
     svc = _mock_services(coord, hass)
 
@@ -274,6 +283,14 @@ async def test_charger_turned_off_after_dwell(hass: HomeAssistant) -> None:
 async def test_notification_sent_on_charge_start(hass: HomeAssistant) -> None:
     """Notification is sent when charger is turned on and notify_service is set."""
     _set_states(hass, co2="150", fossil="20")
+
+    # Backdate charger so cooldown is met
+    from homeassistant.util import dt as real_dt
+
+    hass.states.get("switch.charger").last_changed = (
+        real_dt.utcnow() - timedelta(minutes=15)
+    )
+
     coord = _make_coord(
         hass, {CONF_DRY_RUN: False, CONF_NOTIFY_SERVICE: "notify.test_svc"}
     )
@@ -341,6 +358,105 @@ async def test_rolling_stats_populated(hass: HomeAssistant) -> None:
     assert data.mean_30d is not None
     assert data.stdev_30d is not None
     assert data.z_score is not None
+
+
+# ── Cooldown after turn-off ───────────────────────────────────────────────────
+
+
+async def test_cooldown_suppresses_turn_on(hass: HomeAssistant) -> None:
+    """Charger just turned off (<10 min ago) + clean grid → turn_on suppressed."""
+    # Charger is off (recently changed — last_changed is now)
+    _set_states(hass, co2="150", fossil="20", charger_state="off")
+    coord = _make_coord(hass, {CONF_DRY_RUN: False})
+    # Simulate that the car was already connected (not a fresh plug-in)
+    coord._was_connected = True
+    svc = _mock_services(coord, hass)
+
+    await _run(coord)
+
+    switch_on = [c for c in svc.call_args_list if c.args[:2] == ("switch", "turn_on")]
+    assert len(switch_on) == 0  # cooldown prevents turn-on
+
+
+async def test_cooldown_allows_turn_on_after_elapsed(hass: HomeAssistant) -> None:
+    """Charger off for >10 min + clean grid → turn_on is called."""
+    _set_states(hass, co2="150", fossil="20", charger_state="off")
+
+    # Backdate last_changed to 15 min ago so cooldown is met
+    from homeassistant.util import dt as real_dt
+
+    hass.states.get("switch.charger").last_changed = (
+        real_dt.utcnow() - timedelta(minutes=15)
+    )
+
+    coord = _make_coord(hass, {CONF_DRY_RUN: False})
+    svc = _mock_services(coord, hass)
+
+    await _run(coord)
+
+    switch_on = [c for c in svc.call_args_list if c.args[:2] == ("switch", "turn_on")]
+    assert len(switch_on) == 1
+
+
+async def test_force_on_bypasses_cooldown(hass: HomeAssistant) -> None:
+    """force_on mode ignores cooldown and turns charger on immediately."""
+    # Charger just turned off (last_changed = now)
+    _set_states(hass, co2="150", fossil="20", charger_state="off")
+    coord = _make_coord(
+        hass, {CONF_DRY_RUN: False, CONF_CHARGE_MODE: CHARGE_MODE_FORCE_ON}
+    )
+    svc = _mock_services(coord, hass)
+
+    await _run(coord)
+
+    switch_on = [c for c in svc.call_args_list if c.args[:2] == ("switch", "turn_on")]
+    assert len(switch_on) == 1  # force_on bypasses cooldown
+
+
+async def test_cooldown_not_applied_on_first_start(hass: HomeAssistant) -> None:
+    """When charger has been off for a long time (normal start), turn-on is not blocked."""
+    _set_states(hass, co2="150", fossil="20", charger_state="off")
+
+    # Backdate last_changed to 1 hour ago — well past cooldown
+    from homeassistant.util import dt as real_dt
+
+    hass.states.get("switch.charger").last_changed = (
+        real_dt.utcnow() - timedelta(hours=1)
+    )
+
+    coord = _make_coord(hass, {CONF_DRY_RUN: False})
+    svc = _mock_services(coord, hass)
+
+    await _run(coord)
+
+    switch_on = [c for c in svc.call_args_list if c.args[:2] == ("switch", "turn_on")]
+    assert len(switch_on) == 1
+
+
+async def test_cooldown_bypassed_on_reconnect(hass: HomeAssistant) -> None:
+    """Car unplugged then replugged during cooldown → turn_on is allowed immediately."""
+    # First update: car disconnected, charger off (just turned off — within cooldown)
+    _set_states(hass, co2="150", fossil="20", charger_state="off",
+                charger_attrs={"icon_name": "CarNotConnected"})
+    coord = _make_coord(hass, {CONF_DRY_RUN: False})
+    svc = _mock_services(coord, hass)
+
+    await _run(coord)
+    # Car not connected → should_charge=False, no turn_on
+    switch_on = [c for c in svc.call_args_list if c.args[:2] == ("switch", "turn_on")]
+    assert len(switch_on) == 0
+
+    # Second update: car plugged back in (transition disconnected → connected)
+    # Charger is still recently off (within cooldown window)
+    fake_hass = coord.hass
+    fake_hass.states = hass.states  # restore real states for the re-plug
+    hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
+
+    svc.reset_mock()
+    await _run(coord)
+
+    switch_on = [c for c in svc.call_args_list if c.args[:2] == ("switch", "turn_on")]
+    assert len(switch_on) == 1  # cooldown bypassed because car just reconnected
 
 
 # ── Stale-data detection ──────────────────────────────────────────────────────

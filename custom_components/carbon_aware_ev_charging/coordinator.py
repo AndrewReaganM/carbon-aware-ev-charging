@@ -40,6 +40,7 @@ from .const import (
     FOSSIL_HARD_FLOOR,
     HYSTERESIS_SIGMA,
     LED_COLOUR,
+    MIN_COOLDOWN_MINUTES,
     MIN_DWELL_MINUTES,
     STALE_DATA_MINUTES,
     STATE_CARBON,
@@ -101,6 +102,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         self._deque_7d: deque[tuple[float, float]] = deque(maxlen=DEQUE_7D)
         self._deque_30d: deque[tuple[float, float]] = deque(maxlen=DEQUE_30D)
         self._last_z_score: float | None = None
+        self._was_connected: bool = False
 
     async def async_config_entry_first_refresh(self) -> None:
         """Load persisted rolling history before first poll, then refresh."""
@@ -424,9 +426,32 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             ).total_seconds() / 60
             min_dwell_met = elapsed_min >= MIN_DWELL_MINUTES or not is_connected
 
+        # ── Min cooldown (prevents turn-on shortly after turn-off) ───────────
+        just_reconnected = is_connected and not self._was_connected
+        self._was_connected = is_connected
+
+        cooldown_met = True
+        if (
+            not charger_is_on
+            and should_charge
+            and charger_state is not None
+            and charge_mode != CHARGE_MODE_FORCE_ON
+            and not just_reconnected
+        ):
+            off_elapsed_min = (
+                dt_util.utcnow() - charger_state.last_changed
+            ).total_seconds() / 60
+            cooldown_met = off_elapsed_min >= MIN_COOLDOWN_MINUTES
+            if not cooldown_met:
+                _LOGGER.debug(
+                    "[EV] Cooldown active: charger off for %.1f min, need %d min",
+                    off_elapsed_min,
+                    MIN_COOLDOWN_MINUTES,
+                )
+
         # ── Charger control ───────────────────────────────────────────────────
         if not dry_run:
-            if should_charge and not charger_is_on:
+            if should_charge and not charger_is_on and cooldown_met:
                 await self.hass.services.async_call(
                     "switch",
                     "turn_on",
