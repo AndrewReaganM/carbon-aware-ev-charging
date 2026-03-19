@@ -95,8 +95,8 @@ class EvDepartureHourNumber(
             name="Carbon-Aware EV Charging",
         )
 
-    @cached_property
-    def native_value(self) -> float:
+    @property
+    def native_value(self) -> float:  # type: ignore[override]
         return float(self._entry.options.get(CONF_DEPARTURE_HOUR, 5))
 
     async def async_set_native_value(self, value: float) -> None:
@@ -104,6 +104,7 @@ class EvDepartureHourNumber(
             self._entry,
             options={**self._entry.options, CONF_DEPARTURE_HOUR: int(value)},
         )
+        self.async_write_ha_state()
         await self.coordinator.async_request_refresh()
 
 
@@ -147,8 +148,8 @@ class EvFallbackWindowNumber(
             name="Carbon-Aware EV Charging",
         )
 
-    @cached_property
-    def native_value(self) -> float:
+    @property
+    def native_value(self) -> float:  # type: ignore[override]
         return float(self._entry.options.get(self._key, self._default))
 
     async def async_set_native_value(self, value: float) -> None:
@@ -156,4 +157,5 @@ class EvFallbackWindowNumber(
             self._entry,
             options={**self._entry.options, self._key: int(value)},
         )
+        self.async_write_ha_state()
         await self.coordinator.async_request_refresh()

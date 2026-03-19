@@ -332,6 +332,7 @@ async def test_charge_mode_select_async_select() -> None:
     select = EvChargeModeSelect(coord, entry)
     select.hass = MagicMock()
     select.hass.config_entries.async_update_entry = MagicMock()
+    select.async_write_ha_state = MagicMock()
 
     await select.async_select_option(CHARGE_MODE_FORCE_ON)
 
@@ -359,6 +360,7 @@ async def test_carbon_mode_select_async_select() -> None:
     select = EvCarbonModeSelect(coord, entry)
     select.hass = MagicMock()
     select.hass.config_entries.async_update_entry = MagicMock()
+    select.async_write_ha_state = MagicMock()
 
     await select.async_select_option(CARBON_MODE_STRICT)
 
@@ -393,6 +395,7 @@ async def test_departure_hour_set_value() -> None:
     number = EvDepartureHourNumber(coord, entry)
     number.hass = MagicMock()
     number.hass.config_entries.async_update_entry = MagicMock()
+    number.async_write_ha_state = MagicMock()
 
     await number.async_set_native_value(8.0)
 

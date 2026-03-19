@@ -62,6 +62,7 @@ class _EvSelectBase(CoordinatorEntity[EVCarbonCoordinator], SelectEntity):
             self._entry,
             options={**self._entry.options, key: value},
         )
+        self.async_write_ha_state()
         await self.coordinator.async_request_refresh()
 
 
@@ -78,8 +79,8 @@ class EvChargeModeSelect(_EvSelectBase):
         self._attr_unique_id = f"{entry.entry_id}_ev_charge_mode"
         self._attr_name = "EV Charge Mode"
 
-    @cached_property
-    def current_option(self) -> str:
+    @property
+    def current_option(self) -> str:  # type: ignore[override]
         return self._entry.options.get(CONF_CHARGE_MODE, CHARGE_MODE_AUTO)
 
     async def async_select_option(self, option: str) -> None:
@@ -99,8 +100,8 @@ class EvCarbonModeSelect(_EvSelectBase):
         self._attr_unique_id = f"{entry.entry_id}_ev_carbon_mode"
         self._attr_name = "EV Carbon Sensitivity"
 
-    @cached_property
-    def current_option(self) -> str:
+    @property
+    def current_option(self) -> str:  # type: ignore[override]
         return self._entry.options.get(CONF_CARBON_MODE, CARBON_MODE_MODERATE)
 
     async def async_select_option(self, option: str) -> None:
