@@ -23,6 +23,7 @@ async def async_setup_entry(
     entities: list[SensorEntity] = [
         EvZScoreSensor(coordinator, entry),
         EvLowCarbonNowSensor(coordinator, entry),
+        EvChargingStatusSensor(coordinator, entry),
         EvChargeCurrentSensor(coordinator, entry),
     ]
     if entry.data.get(CONF_CHARGER_POWER_SENSOR):
@@ -116,6 +117,39 @@ class EvLowCarbonNowSensor(_EvBaseEntity, SensorEntity):
             "predicted_state": self._data.predicted_state,
             "should_charge": self._data.should_charge,
             "carbon_data_unavailable": self._data.carbon_data_unavailable,
+            "fossil_pct": self._data.fossil_pct,
+        }
+
+
+class EvChargingStatusSensor(_EvBaseEntity, SensorEntity):
+    """Human-readable explanation of what the charger is doing and why."""
+
+    _attr_icon = "mdi:message-text"
+
+    def __init__(
+        self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
+    ) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_ev_charging_status"
+        self._attr_name = "EV Charging Status"
+
+    @property
+    def native_value(self) -> str:
+        if not self.coordinator.last_update_success:
+            return "Unavailable"
+        return self._data.status_reason
+
+    @property
+    def available(self) -> bool:  # type: ignore[override]
+        return True
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            "predicted_state": self._data.predicted_state,
+            "should_charge": self._data.should_charge,
+            "is_connected": self._data.is_connected,
+            "z_score": self._data.z_score,
             "fossil_pct": self._data.fossil_pct,
         }
 
