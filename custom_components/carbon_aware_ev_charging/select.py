@@ -8,13 +8,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .base_entity import EVChargerBaseEntity
 from .const import (
-    CARBON_MODE_MODERATE,
     CARBON_MODES,
-    CHARGE_MODE_AUTO,
     CHARGE_MODES,
     CONF_CARBON_MODE,
     CONF_CHARGE_MODE,
     DOMAIN,
+    PREFERENCE_DEFAULTS,
 )
 from .coordinator import EVCarbonCoordinator
 
@@ -48,7 +47,7 @@ class EvChargeModeSelect(EVChargerBaseEntity, SelectEntity):
 
     @property
     def current_option(self) -> str:  # type: ignore[override]
-        return self._entry.options.get(CONF_CHARGE_MODE, CHARGE_MODE_AUTO)
+        return self._entry.options.get(CONF_CHARGE_MODE, PREFERENCE_DEFAULTS[CONF_CHARGE_MODE])
 
     @property
     def available(self) -> bool:  # type: ignore[override]
@@ -73,7 +72,7 @@ class EvCarbonModeSelect(EVChargerBaseEntity, SelectEntity):
 
     @property
     def current_option(self) -> str:  # type: ignore[override]
-        return self._entry.options.get(CONF_CARBON_MODE, CARBON_MODE_MODERATE)
+        return self._entry.options.get(CONF_CARBON_MODE, PREFERENCE_DEFAULTS[CONF_CARBON_MODE])
 
     @property
     def available(self) -> bool:  # type: ignore[override]

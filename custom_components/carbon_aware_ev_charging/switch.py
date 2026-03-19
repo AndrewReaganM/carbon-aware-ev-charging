@@ -13,6 +13,7 @@ from .const import (
     CONF_FALLBACK_WINDOW_1_ENABLED,
     CONF_FALLBACK_WINDOW_2_ENABLED,
     DOMAIN,
+    PREFERENCE_DEFAULTS,
 )
 from .coordinator import EVCarbonCoordinator
 
@@ -59,7 +60,7 @@ class EvFallbackWindowSwitch(EVChargerBaseEntity, SwitchEntity):
 
     @property
     def is_on(self) -> bool:
-        return bool(self._entry.options.get(self._key, True))
+        return bool(self._entry.options.get(self._key, PREFERENCE_DEFAULTS[self._key]))
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self._async_update_option(self._key, True)

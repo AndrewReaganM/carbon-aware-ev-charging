@@ -15,8 +15,6 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    CARBON_MODE_MODERATE,
-    CHARGE_MODE_AUTO,
     CHARGE_MODE_FORCE_OFF,
     CHARGE_MODE_FORCE_ON,
     CHARGEABLE_STATES,
@@ -40,10 +38,6 @@ from .const import (
     CONF_LED_EFFECT_SELECT,
     CONF_LED_LIGHT,
     CONF_NOTIFY_SERVICE,
-    DEFAULT_FALLBACK_WINDOW_1_END,
-    DEFAULT_FALLBACK_WINDOW_1_START,
-    DEFAULT_FALLBACK_WINDOW_2_END,
-    DEFAULT_FALLBACK_WINDOW_2_START,
     DEQUE_30D,
     DEQUE_7D,
     DOMAIN,
@@ -52,6 +46,7 @@ from .const import (
     LED_COLOUR,
     MIN_COOLDOWN_MINUTES,
     MIN_DWELL_MINUTES,
+    PREFERENCE_DEFAULTS,
     STALE_DATA_MINUTES,
     STATE_CARBON,
     STATE_OVERRIDE,
@@ -340,11 +335,11 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         cfg = self.entry.data
         opts = self.entry.options
 
-        def _pref(key: str, default: Any) -> Any:
-            """Options override data, with fallback to default."""
-            return opts.get(key, cfg.get(key, default))
+        def _pref(key: str) -> Any:
+            """Options override data, with fallback to PREFERENCE_DEFAULTS."""
+            return opts.get(key, cfg.get(key, PREFERENCE_DEFAULTS[key]))
 
-        departure_days_raw = _pref(CONF_DEPARTURE_DAYS, ["2", "3"])
+        departure_days_raw = _pref(CONF_DEPARTURE_DAYS)
 
         return _ResolvedConfig(
             co2_entity=cfg[CONF_CO2_SENSOR],
@@ -357,18 +352,18 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             power_entity=cfg.get(CONF_CHARGER_POWER_SENSOR),
             led_light=cfg.get(CONF_LED_LIGHT),
             led_effect_select=cfg.get(CONF_LED_EFFECT_SELECT),
-            carbon_mode=_pref(CONF_CARBON_MODE, CARBON_MODE_MODERATE),
-            charge_mode=opts.get(CONF_CHARGE_MODE, CHARGE_MODE_AUTO),
-            departure_hour=int(_pref(CONF_DEPARTURE_HOUR, 5)),
+            carbon_mode=_pref(CONF_CARBON_MODE),
+            charge_mode=_pref(CONF_CHARGE_MODE),
+            departure_hour=int(_pref(CONF_DEPARTURE_HOUR)),
             departure_days=[int(d) for d in departure_days_raw],
-            dry_run=bool(_pref(CONF_DRY_RUN, False)),
-            notify_service=_pref(CONF_NOTIFY_SERVICE, ""),
-            fb1_start=int(_pref(CONF_FALLBACK_WINDOW_1_START, DEFAULT_FALLBACK_WINDOW_1_START)),
-            fb1_end=int(_pref(CONF_FALLBACK_WINDOW_1_END, DEFAULT_FALLBACK_WINDOW_1_END)),
-            fb2_start=int(_pref(CONF_FALLBACK_WINDOW_2_START, DEFAULT_FALLBACK_WINDOW_2_START)),
-            fb2_end=int(_pref(CONF_FALLBACK_WINDOW_2_END, DEFAULT_FALLBACK_WINDOW_2_END)),
-            fb1_enabled=bool(_pref(CONF_FALLBACK_WINDOW_1_ENABLED, True)),
-            fb2_enabled=bool(_pref(CONF_FALLBACK_WINDOW_2_ENABLED, True)),
+            dry_run=bool(_pref(CONF_DRY_RUN)),
+            notify_service=_pref(CONF_NOTIFY_SERVICE),
+            fb1_start=int(_pref(CONF_FALLBACK_WINDOW_1_START)),
+            fb1_end=int(_pref(CONF_FALLBACK_WINDOW_1_END)),
+            fb2_start=int(_pref(CONF_FALLBACK_WINDOW_2_START)),
+            fb2_end=int(_pref(CONF_FALLBACK_WINDOW_2_END)),
+            fb1_enabled=bool(_pref(CONF_FALLBACK_WINDOW_1_ENABLED)),
+            fb2_enabled=bool(_pref(CONF_FALLBACK_WINDOW_2_ENABLED)),
         )
 
     def _read_sensors(self, cfg: _ResolvedConfig) -> _SensorReadings:

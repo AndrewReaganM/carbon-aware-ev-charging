@@ -13,11 +13,8 @@ from .const import (
     CONF_FALLBACK_WINDOW_1_START,
     CONF_FALLBACK_WINDOW_2_END,
     CONF_FALLBACK_WINDOW_2_START,
-    DEFAULT_FALLBACK_WINDOW_1_END,
-    DEFAULT_FALLBACK_WINDOW_1_START,
-    DEFAULT_FALLBACK_WINDOW_2_END,
-    DEFAULT_FALLBACK_WINDOW_2_START,
     DOMAIN,
+    PREFERENCE_DEFAULTS,
 )
 from .coordinator import EVCarbonCoordinator
 
@@ -33,28 +30,24 @@ async def async_setup_entry(
         EvFallbackWindowNumber(
             coordinator, entry,
             key=CONF_FALLBACK_WINDOW_1_START,
-            default=DEFAULT_FALLBACK_WINDOW_1_START,
             name="EV Fallback Window 1 Start",
             icon="mdi:weather-night",
         ),
         EvFallbackWindowNumber(
             coordinator, entry,
             key=CONF_FALLBACK_WINDOW_1_END,
-            default=DEFAULT_FALLBACK_WINDOW_1_END,
             name="EV Fallback Window 1 End",
             icon="mdi:weather-night",
         ),
         EvFallbackWindowNumber(
             coordinator, entry,
             key=CONF_FALLBACK_WINDOW_2_START,
-            default=DEFAULT_FALLBACK_WINDOW_2_START,
             name="EV Fallback Window 2 Start",
             icon="mdi:weather-sunny",
         ),
         EvFallbackWindowNumber(
             coordinator, entry,
             key=CONF_FALLBACK_WINDOW_2_END,
-            default=DEFAULT_FALLBACK_WINDOW_2_END,
             name="EV Fallback Window 2 End",
             icon="mdi:weather-sunny",
         ),
@@ -80,7 +73,7 @@ class EvDepartureHourNumber(EVChargerBaseEntity, NumberEntity):
 
     @property
     def native_value(self) -> float:  # type: ignore[override]
-        return float(self._entry.options.get(CONF_DEPARTURE_HOUR, 5))
+        return float(self._entry.options.get(CONF_DEPARTURE_HOUR, PREFERENCE_DEFAULTS[CONF_DEPARTURE_HOUR]))
 
     async def async_set_native_value(self, value: float) -> None:
         await self._async_update_option(CONF_DEPARTURE_HOUR, int(value))
@@ -101,20 +94,18 @@ class EvFallbackWindowNumber(EVChargerBaseEntity, NumberEntity):
         entry: ConfigEntry,
         *,
         key: str,
-        default: int,
         name: str,
         icon: str,
     ) -> None:
         super().__init__(coordinator, entry)
         self._key = key
-        self._default = default
         self._attr_unique_id = f"{entry.entry_id}_{key}"
         self._attr_name = name
         self._attr_icon = icon
 
     @property
     def native_value(self) -> float:  # type: ignore[override]
-        return float(self._entry.options.get(self._key, self._default))
+        return float(self._entry.options.get(self._key, PREFERENCE_DEFAULTS[self._key]))
 
     async def async_set_native_value(self, value: float) -> None:
         await self._async_update_option(self._key, int(value))
