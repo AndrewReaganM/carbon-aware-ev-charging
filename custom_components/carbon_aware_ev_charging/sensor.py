@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .base_entity import EVChargerBaseEntity
-from .const import CONF_CHARGER_POWER_SENSOR, DOMAIN
+from .const import CHARGING_STATUSES, CONF_CHARGER_POWER_SENSOR, DOMAIN
 from .coordinator import EVCarbonCoordinator
 
 
@@ -66,8 +66,10 @@ class EvZScoreSensor(EVChargerBaseEntity, SensorEntity):
 
 
 class EvChargingStatusSensor(EVChargerBaseEntity, SensorEntity):
-    """Human-readable explanation of what the charger is doing and why."""
+    """Machine-readable charging status enum with human-readable detail."""
 
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = CHARGING_STATUSES
     _attr_icon = "mdi:message-text"
 
     def __init__(
@@ -80,8 +82,8 @@ class EvChargingStatusSensor(EVChargerBaseEntity, SensorEntity):
     @property
     def native_value(self) -> str:
         if not self.coordinator.last_update_success:
-            return "Unavailable"
-        return self._data.status_reason
+            return "unavailable"
+        return self._data.status_enum
 
     @property
     def available(self) -> bool:  # type: ignore[override]
@@ -90,6 +92,7 @@ class EvChargingStatusSensor(EVChargerBaseEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {
+            "status_reason": self._data.status_reason,
             "predicted_state": self._data.predicted_state,
             "should_charge": self._data.should_charge,
             "is_connected": self._data.is_connected,

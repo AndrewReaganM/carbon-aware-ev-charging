@@ -20,6 +20,7 @@ from custom_components.carbon_aware_ev_charging.const import (
     CHARGE_MODE_AUTO,
     CHARGE_MODE_FORCE_ON,
     CHARGE_MODES,
+    CHARGING_STATUSES,
     CONF_CARBON_MODE,
     CONF_CHARGE_MODE,
     CONF_DEPARTURE_HOUR,
@@ -204,91 +205,112 @@ def test_ev_connected_off_when_coordinator_failed() -> None:
 # ── EvChargingStatusSensor ──────────────────────────────────────────────────────────
 
 
+def test_charging_status_is_enum_sensor() -> None:
+    from homeassistant.components.sensor import SensorDeviceClass
+
+    sensor = EvChargingStatusSensor(_coord(EVCarbonData()), _entry())
+    assert sensor.device_class == SensorDeviceClass.ENUM
+    assert sensor.options == CHARGING_STATUSES
+
+
 def test_charging_status_not_connected() -> None:
-    data = EVCarbonData(is_connected=False, status_reason="Not connected")
+    data = EVCarbonData(
+        is_connected=False,
+        status_enum="not_connected",
+        status_reason="Not connected",
+    )
     sensor = EvChargingStatusSensor(_coord(data), _entry())
-    assert sensor.native_value == "Not connected"
+    assert sensor.native_value == "not_connected"
 
 
 def test_charging_status_carbon_good() -> None:
     data = EVCarbonData(
         is_connected=True, carbon_good=True,
-        predicted_state=STATE_CARBON, status_reason="Charging — grid is clean (-0.5σ)",
+        predicted_state=STATE_CARBON,
+        status_enum="low_carbon",
+        status_reason="Charging — grid is clean (-0.5σ)",
         z_score=-0.5, fossil_pct=30.0,
     )
     sensor = EvChargingStatusSensor(_coord(data), _entry())
-    assert sensor.native_value == "Charging — grid is clean (-0.5σ)"
+    assert sensor.native_value == "low_carbon"
 
 
 def test_charging_status_forced_on() -> None:
     data = EVCarbonData(
         is_connected=True, predicted_state="override",
+        status_enum="override",
         status_reason="Charging — forced on",
     )
     sensor = EvChargingStatusSensor(_coord(data), _entry())
-    assert sensor.native_value == "Charging — forced on"
+    assert sensor.native_value == "override"
 
 
 def test_charging_status_forced_off() -> None:
     data = EVCarbonData(
         is_connected=True, predicted_state=STATE_PAUSED,
+        status_enum="forced_off",
         status_reason="Paused — forced off",
     )
     sensor = EvChargingStatusSensor(_coord(data), _entry())
-    assert sensor.native_value == "Paused — forced off"
+    assert sensor.native_value == "forced_off"
 
 
 def test_charging_status_grid_dirty() -> None:
     data = EVCarbonData(
         is_connected=True, predicted_state=STATE_PAUSED,
+        status_enum="grid_dirty",
         status_reason="Paused — grid too dirty (1.2σ)",
         z_score=1.2, fossil_pct=40.0,
     )
     sensor = EvChargingStatusSensor(_coord(data), _entry())
-    assert sensor.native_value == "Paused — grid too dirty (1.2σ)"
+    assert sensor.native_value == "grid_dirty"
 
 
 def test_charging_status_fossil_high() -> None:
     data = EVCarbonData(
         is_connected=True, predicted_state=STATE_PAUSED,
+        status_enum="fossil_high",
         status_reason="Paused — fossil fuel too high (80%)",
         z_score=-0.3, fossil_pct=80.0,
     )
     sensor = EvChargingStatusSensor(_coord(data), _entry())
-    assert sensor.native_value == "Paused — fossil fuel too high (80%)"
+    assert sensor.native_value == "fossil_high"
 
 
 def test_charging_status_departure_prep() -> None:
     data = EVCarbonData(
         is_connected=True, predicted_state="scheduled",
+        status_enum="departure_prep",
         status_reason="Charging — departure prep Wed 07:00",
     )
     sensor = EvChargingStatusSensor(_coord(data), _entry())
-    assert sensor.native_value == "Charging — departure prep Wed 07:00"
+    assert sensor.native_value == "departure_prep"
 
 
 def test_charging_status_fallback() -> None:
     data = EVCarbonData(
         is_connected=True, predicted_state="scheduled",
+        status_enum="fallback",
         status_reason="Charging — fallback window",
     )
     sensor = EvChargingStatusSensor(_coord(data), _entry())
-    assert sensor.native_value == "Charging — fallback window"
+    assert sensor.native_value == "fallback"
 
 
 def test_charging_status_waiting_for_data() -> None:
     data = EVCarbonData(
         is_connected=True, carbon_data_unavailable=True,
+        status_enum="waiting_for_data",
         status_reason="Paused — waiting for data",
     )
     sensor = EvChargingStatusSensor(_coord(data), _entry())
-    assert sensor.native_value == "Paused — waiting for data"
+    assert sensor.native_value == "waiting_for_data"
 
 
 def test_charging_status_unavailable_on_coord_failure() -> None:
     data = EVCarbonData(status_reason="Charging — grid is clean")
     sensor = EvChargingStatusSensor(_coord(data, success=False), _entry())
-    assert sensor.native_value == "Unavailable"
+    assert sensor.native_value == "unavailable"
     assert sensor.available is True  # always reports available
 
 
@@ -296,10 +318,12 @@ def test_charging_status_extra_attrs() -> None:
     data = EVCarbonData(
         predicted_state=STATE_CARBON, should_charge=True,
         is_connected=True, z_score=-0.5, fossil_pct=30.0,
+        status_enum="low_carbon",
         status_reason="Charging — grid is clean (-0.5σ)",
     )
     sensor = EvChargingStatusSensor(_coord(data), _entry())
     attrs = sensor.extra_state_attributes
+    assert attrs["status_reason"] == "Charging — grid is clean (-0.5σ)"
     assert attrs["predicted_state"] == STATE_CARBON
     assert attrs["should_charge"] is True
     assert attrs["is_connected"] is True

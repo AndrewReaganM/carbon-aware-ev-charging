@@ -97,6 +97,7 @@ class EVCarbonData:
     data_stale: bool = False
     predicted_state: str = STATE_PAUSED
     should_charge: bool = False
+    status_enum: str = "unknown"
     status_reason: str = "Unknown"
     charge_rate_kw: float | None = None
     charge_current_a: int | None = None
@@ -163,6 +164,7 @@ class _ChargingDecision:
     carbon_good: bool
     fallback_window: bool
     departure_prep: bool
+    status_enum: str
     status_reason: str
     min_dwell_met: bool
     cooldown_met: bool
@@ -323,6 +325,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             data_stale=sensors.data_stale,
             predicted_state=decision.predicted_state,
             should_charge=decision.should_charge,
+            status_enum=decision.status_enum,
             status_reason=decision.status_reason,
             charge_rate_kw=sensors.charge_rate_kw,
             charge_current_a=sensors.charge_current_a,
@@ -556,27 +559,37 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
 
         # Human-readable status reason
         if not sensors.is_connected:
+            status_enum = "not_connected"
             status_reason = "Not connected"
         elif cfg.charge_mode == CHARGE_MODE_FORCE_OFF:
+            status_enum = "forced_off"
             status_reason = "Paused — forced off"
         elif cfg.charge_mode == CHARGE_MODE_FORCE_ON:
+            status_enum = "override"
             status_reason = "Charging — forced on"
         elif carbon_good:
+            status_enum = "low_carbon"
             status_reason = f"Charging — grid is clean ({stats.z_score}σ)"
         elif sensors.carbon_data_unavailable and departure_prep:
             day_name = _DAY_NAMES[weekday]
+            status_enum = "departure_prep"
             status_reason = (
                 f"Charging — departure prep {day_name} {cfg.departure_hour:02d}:00"
             )
         elif sensors.carbon_data_unavailable and fallback_window:
+            status_enum = "fallback"
             status_reason = "Charging — fallback window"
         elif sensors.carbon_data_unavailable and sensors.data_stale:
+            status_enum = "data_stale"
             status_reason = "Paused — sensor data is stale"
         elif sensors.carbon_data_unavailable:
+            status_enum = "waiting_for_data"
             status_reason = "Paused — waiting for data"
         elif sensors.fossil_pct is not None and sensors.fossil_pct >= FOSSIL_HARD_FLOOR:
+            status_enum = "fossil_high"
             status_reason = f"Paused — fossil fuel too high ({round(sensors.fossil_pct)}%)"
         else:
+            status_enum = "grid_dirty"
             status_reason = f"Paused — grid too dirty ({stats.z_score}σ)"
 
         # Min dwell (prevents turn-off within 15 min of turn-on)
@@ -616,6 +629,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             carbon_good=carbon_good,
             fallback_window=fallback_window,
             departure_prep=departure_prep,
+            status_enum=status_enum,
             status_reason=status_reason,
             min_dwell_met=min_dwell_met,
             cooldown_met=cooldown_met,

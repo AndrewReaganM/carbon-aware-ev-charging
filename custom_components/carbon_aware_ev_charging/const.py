@@ -86,6 +86,35 @@ STATE_PAUSED = "paused"
 
 CHARGEABLE_STATES = (STATE_CARBON, STATE_SCHEDULED, STATE_OVERRIDE)
 
+# ── Charging status enum values (for device_class: enum sensor) ───────────────
+STATUS_NOT_CONNECTED = "not_connected"
+STATUS_FORCED_OFF = "forced_off"
+STATUS_OVERRIDE = "override"
+STATUS_LOW_CARBON = "low_carbon"
+STATUS_DEPARTURE_PREP = "departure_prep"
+STATUS_FALLBACK = "fallback"
+STATUS_DATA_STALE = "data_stale"
+STATUS_WAITING_FOR_DATA = "waiting_for_data"
+STATUS_FOSSIL_HIGH = "fossil_high"
+STATUS_GRID_DIRTY = "grid_dirty"
+STATUS_UNAVAILABLE = "unavailable"
+STATUS_UNKNOWN = "unknown"
+
+CHARGING_STATUSES: list[str] = [
+    STATUS_NOT_CONNECTED,
+    STATUS_FORCED_OFF,
+    STATUS_OVERRIDE,
+    STATUS_LOW_CARBON,
+    STATUS_DEPARTURE_PREP,
+    STATUS_FALLBACK,
+    STATUS_DATA_STALE,
+    STATUS_WAITING_FOR_DATA,
+    STATUS_FOSSIL_HIGH,
+    STATUS_GRID_DIRTY,
+    STATUS_UNAVAILABLE,
+    STATUS_UNKNOWN,
+]
+
 # ── LED HS colours per state ──────────────────────────────────────────────────
 LED_COLOUR: dict[str, list[int]] = {
     STATE_CARBON: [120, 80],
