@@ -66,7 +66,9 @@ _LOGGER = logging.getLogger(__name__)
 
 POLL_INTERVAL = timedelta(minutes=5)
 
-_UNAVAILABLE_STATES = {"unavailable", "unknown", "none", ""}
+_UNAVAILABLE_STATES = frozenset({"unavailable", "unknown", "none", ""})
+
+_DAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 def _in_hour_window(hour: int, start: int, end: int) -> bool:
@@ -103,6 +105,72 @@ class EVCarbonData:
     status_reason: str = "Unknown"
     charge_rate_kw: float | None = None
     charge_current_a: int | None = None
+
+
+@dataclass
+class _ResolvedConfig:
+    """Resolved configuration — options override data, with defaults."""
+
+    co2_entity: str
+    fossil_entity: str
+    charger_entity: str
+    connected_attr: str
+    not_connected_val: str
+    power_entity: str | None
+    led_light: str | None
+    led_effect_select: str | None
+    carbon_mode: str
+    charge_mode: str
+    departure_hour: int
+    departure_days: list[int]
+    dry_run: bool
+    notify_service: str
+    fb1_start: int
+    fb1_end: int
+    fb2_start: int
+    fb2_end: int
+    fb1_enabled: bool
+    fb2_enabled: bool
+
+
+@dataclass
+class _SensorReadings:
+    """Parsed sensor states from HA."""
+
+    co2: float | None
+    fossil_pct: float | None
+    carbon_data_unavailable: bool
+    data_stale: bool
+    is_connected: bool
+    charger_is_on: bool
+    charger_state: Any  # HA State object (needed for dwell/cooldown timing)
+    charge_rate_kw: float | None
+    charge_current_a: int | None
+
+
+@dataclass
+class _Statistics:
+    """Rolling statistics and derived Z-score."""
+
+    mean_7d: float | None
+    stdev_7d: float | None
+    mean_30d: float | None
+    stdev_30d: float | None
+    z_score: float | None
+
+
+@dataclass
+class _ChargingDecision:
+    """Output of the charging decision engine."""
+
+    predicted_state: str
+    should_charge: bool
+    carbon_good: bool
+    fallback_window: bool
+    departure_prep: bool
+    status_reason: str
+    min_dwell_met: bool
+    cooldown_met: bool
 
 
 class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
@@ -225,65 +293,89 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
 
     async def _async_update_data(self) -> EVCarbonData:
         """Fetch state, update stats, compute derived values, control devices."""
+        cfg = self._resolve_config()
+        sensors = self._read_sensors(cfg)
+        stats = self._update_statistics(sensors.co2)
+        decision = self._evaluate_charging(cfg, sensors, stats)
+        await self._control_devices(cfg, sensors, decision, stats)
+
+        _LOGGER.info(
+            "[EV] predicted=%s should_charge=%s mode=%s car=%s carbon=%s "
+            "z_score=%s fallback=%s departure=%s unavailable=%s dry_run=%s",
+            decision.predicted_state,
+            decision.should_charge,
+            cfg.charge_mode,
+            sensors.is_connected,
+            decision.carbon_good,
+            stats.z_score,
+            decision.fallback_window,
+            decision.departure_prep,
+            sensors.carbon_data_unavailable,
+            cfg.dry_run,
+        )
+
+        return EVCarbonData(
+            co2=sensors.co2,
+            fossil_pct=sensors.fossil_pct,
+            z_score=stats.z_score,
+            mean_7d=stats.mean_7d,
+            stdev_7d=stats.stdev_7d,
+            mean_30d=stats.mean_30d,
+            stdev_30d=stats.stdev_30d,
+            is_connected=sensors.is_connected,
+            carbon_good=decision.carbon_good,
+            carbon_data_unavailable=sensors.carbon_data_unavailable,
+            data_stale=sensors.data_stale,
+            predicted_state=decision.predicted_state,
+            should_charge=decision.should_charge,
+            status_reason=decision.status_reason,
+            charge_rate_kw=sensors.charge_rate_kw,
+            charge_current_a=sensors.charge_current_a,
+        )
+
+    # ── Extracted logic ───────────────────────────────────────────────────────
+
+    def _resolve_config(self) -> _ResolvedConfig:
+        """Merge entry.data and entry.options with correct precedence."""
         cfg = self.entry.data
         opts = self.entry.options
 
-        # Config — entity IDs come from data; preferences prefer options over data.
-        co2_entity: str = cfg[CONF_CO2_SENSOR]
-        fossil_entity: str = cfg[CONF_FOSSIL_SENSOR]
-        charger_entity: str = cfg[CONF_CHARGER_SWITCH]
-        connected_attr: str = cfg.get(CONF_CHARGER_CONNECTED_ATTR, "icon_name")
-        not_connected_val: str = cfg.get(
-            CONF_CHARGER_NOT_CONNECTED_VALUE, "CarNotConnected"
-        )
-        power_entity: str | None = cfg.get(CONF_CHARGER_POWER_SENSOR)
-        led_light: str | None = cfg.get(CONF_LED_LIGHT)
-        led_effect_select: str | None = cfg.get(CONF_LED_EFFECT_SELECT)
+        def _pref(key: str, default: Any) -> Any:
+            """Options override data, with fallback to default."""
+            return opts.get(key, cfg.get(key, default))
 
-        carbon_mode: str = opts.get(
-            CONF_CARBON_MODE, cfg.get(CONF_CARBON_MODE, CARBON_MODE_MODERATE)
-        )
-        charge_mode: str = opts.get(CONF_CHARGE_MODE, CHARGE_MODE_AUTO)
-        departure_hour: int = int(
-            opts.get(CONF_DEPARTURE_HOUR, cfg.get(CONF_DEPARTURE_HOUR, 5))
-        )
-        departure_days_raw = opts.get(
-            CONF_DEPARTURE_DAYS, cfg.get(CONF_DEPARTURE_DAYS, ["2", "3"])
-        )
-        departure_days: list[int] = [int(d) for d in departure_days_raw]
-        dry_run: bool = bool(opts.get(CONF_DRY_RUN, cfg.get(CONF_DRY_RUN, False)))
-        notify_service: str = opts.get(
-            CONF_NOTIFY_SERVICE, cfg.get(CONF_NOTIFY_SERVICE, "")
-        )
-        fb1_start: int = int(opts.get(
-            CONF_FALLBACK_WINDOW_1_START,
-            cfg.get(CONF_FALLBACK_WINDOW_1_START, DEFAULT_FALLBACK_WINDOW_1_START),
-        ))
-        fb1_end: int = int(opts.get(
-            CONF_FALLBACK_WINDOW_1_END,
-            cfg.get(CONF_FALLBACK_WINDOW_1_END, DEFAULT_FALLBACK_WINDOW_1_END),
-        ))
-        fb2_start: int = int(opts.get(
-            CONF_FALLBACK_WINDOW_2_START,
-            cfg.get(CONF_FALLBACK_WINDOW_2_START, DEFAULT_FALLBACK_WINDOW_2_START),
-        ))
-        fb2_end: int = int(opts.get(
-            CONF_FALLBACK_WINDOW_2_END,
-            cfg.get(CONF_FALLBACK_WINDOW_2_END, DEFAULT_FALLBACK_WINDOW_2_END),
-        ))
-        fb1_enabled: bool = bool(opts.get(
-            CONF_FALLBACK_WINDOW_1_ENABLED,
-            cfg.get(CONF_FALLBACK_WINDOW_1_ENABLED, True),
-        ))
-        fb2_enabled: bool = bool(opts.get(
-            CONF_FALLBACK_WINDOW_2_ENABLED,
-            cfg.get(CONF_FALLBACK_WINDOW_2_ENABLED, True),
-        ))
+        departure_days_raw = _pref(CONF_DEPARTURE_DAYS, ["2", "3"])
 
-        # ── Read sensor states ────────────────────────────────────────────────
-        co2_state = self.hass.states.get(co2_entity)
-        fossil_state = self.hass.states.get(fossil_entity)
-        charger_state = self.hass.states.get(charger_entity)
+        return _ResolvedConfig(
+            co2_entity=cfg[CONF_CO2_SENSOR],
+            fossil_entity=cfg[CONF_FOSSIL_SENSOR],
+            charger_entity=cfg[CONF_CHARGER_SWITCH],
+            connected_attr=cfg.get(CONF_CHARGER_CONNECTED_ATTR, "icon_name"),
+            not_connected_val=cfg.get(
+                CONF_CHARGER_NOT_CONNECTED_VALUE, "CarNotConnected"
+            ),
+            power_entity=cfg.get(CONF_CHARGER_POWER_SENSOR),
+            led_light=cfg.get(CONF_LED_LIGHT),
+            led_effect_select=cfg.get(CONF_LED_EFFECT_SELECT),
+            carbon_mode=_pref(CONF_CARBON_MODE, CARBON_MODE_MODERATE),
+            charge_mode=opts.get(CONF_CHARGE_MODE, CHARGE_MODE_AUTO),
+            departure_hour=int(_pref(CONF_DEPARTURE_HOUR, 5)),
+            departure_days=[int(d) for d in departure_days_raw],
+            dry_run=bool(_pref(CONF_DRY_RUN, False)),
+            notify_service=_pref(CONF_NOTIFY_SERVICE, ""),
+            fb1_start=int(_pref(CONF_FALLBACK_WINDOW_1_START, DEFAULT_FALLBACK_WINDOW_1_START)),
+            fb1_end=int(_pref(CONF_FALLBACK_WINDOW_1_END, DEFAULT_FALLBACK_WINDOW_1_END)),
+            fb2_start=int(_pref(CONF_FALLBACK_WINDOW_2_START, DEFAULT_FALLBACK_WINDOW_2_START)),
+            fb2_end=int(_pref(CONF_FALLBACK_WINDOW_2_END, DEFAULT_FALLBACK_WINDOW_2_END)),
+            fb1_enabled=bool(_pref(CONF_FALLBACK_WINDOW_1_ENABLED, True)),
+            fb2_enabled=bool(_pref(CONF_FALLBACK_WINDOW_2_ENABLED, True)),
+        )
+
+    def _read_sensors(self, cfg: _ResolvedConfig) -> _SensorReadings:
+        """Read and parse all sensor states from HA."""
+        co2_state = self.hass.states.get(cfg.co2_entity)
+        fossil_state = self.hass.states.get(cfg.fossil_entity)
+        charger_state = self.hass.states.get(cfg.charger_entity)
 
         co2: float | None = None
         fossil_pct: float | None = None
@@ -292,9 +384,9 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         _LOGGER.debug(
             "[EV] raw sensor states: co2_entity=%s state=%r  "
             "fossil_entity=%s state=%r  charger_entity=%s state=%r",
-            co2_entity, co2_state.state if co2_state else "MISSING",
-            fossil_entity, fossil_state.state if fossil_state else "MISSING",
-            charger_entity, charger_state.state if charger_state else "MISSING",
+            cfg.co2_entity, co2_state.state if co2_state else "MISSING",
+            cfg.fossil_entity, fossil_state.state if fossil_state else "MISSING",
+            cfg.charger_entity, charger_state.state if charger_state else "MISSING",
         )
 
         if co2_state and co2_state.state not in _UNAVAILABLE_STATES:
@@ -313,12 +405,12 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         if co2 is None or fossil_pct is None:
             carbon_data_unavailable = True
 
-        # ── Staleness check ───────────────────────────────────────────────
+        # Staleness check
         data_stale = False
         stale_threshold = dt_util.utcnow() - timedelta(minutes=STALE_DATA_MINUTES)
         for _entity, _state in (
-            (co2_entity, co2_state),
-            (fossil_entity, fossil_state),
+            (cfg.co2_entity, co2_state),
+            (cfg.fossil_entity, fossil_state),
         ):
             if _state is not None and _state.state not in _UNAVAILABLE_STATES:
                 if _state.last_updated < stale_threshold:
@@ -334,13 +426,13 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         is_connected = False
         if charger_state:
             is_connected = (
-                charger_state.attributes.get(connected_attr) != not_connected_val
+                charger_state.attributes.get(cfg.connected_attr) != cfg.not_connected_val
             )
 
-        # ── Charger aux sensors ───────────────────────────────────────────────
+        # Charger aux sensors
         charge_rate_kw: float | None = None
-        if power_entity:
-            ps = self.hass.states.get(power_entity)
+        if cfg.power_entity:
+            ps = self.hass.states.get(cfg.power_entity)
             if ps and ps.state not in _UNAVAILABLE_STATES:
                 try:
                     charge_rate_kw = round(float(ps.state) / 1000, 2)
@@ -356,14 +448,28 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
                 except (TypeError, ValueError):
                     pass
 
-        # ── Update rolling deques and persist ─────────────────────────────────
+        charger_is_on = charger_state is not None and charger_state.state == "on"
+
+        return _SensorReadings(
+            co2=co2,
+            fossil_pct=fossil_pct,
+            carbon_data_unavailable=carbon_data_unavailable,
+            data_stale=data_stale,
+            is_connected=is_connected,
+            charger_is_on=charger_is_on,
+            charger_state=charger_state,
+            charge_rate_kw=charge_rate_kw,
+            charge_current_a=charge_current_a,
+        )
+
+    def _update_statistics(self, co2: float | None) -> _Statistics:
+        """Update rolling deques, compute mean/stdev/z-score."""
         if co2 is not None:
             ts = dt_util.utcnow().timestamp()
             self._deque_7d.append((ts, co2))
             self._deque_30d.append((ts, co2))
             self.hass.async_create_task(self._async_save_history())
 
-        # ── Rolling statistics ─────────────────────────────────────────────────
         vals_7d = [v for _, v in self._deque_7d]
         mean_7d: float | None = None
         stdev_7d: float | None = None
@@ -378,13 +484,13 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             mean_30d = statistics.mean(vals_30d)
             stdev_30d = statistics.stdev(vals_30d)
 
-        # ── Z-score with reload-spike guard ───────────────────────────────────
         _LOGGER.debug(
             "[EV] z_score inputs: co2=%s mean_7d=%s stdev_7d=%s "
             "mean_30d=%s stdev_30d=%s deque_7d_len=%d deque_30d_len=%d",
             co2, mean_7d, stdev_7d, mean_30d, stdev_30d,
             len(self._deque_7d), len(self._deque_30d),
         )
+
         z_score: float | None = None
         if co2 is not None and mean_7d is not None:
             if stdev_7d:
@@ -401,92 +507,105 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             )
             z_score = self._last_z_score  # hold last good value
 
-        # ── Carbon gate (with hysteresis) ─────────────────────────────────────
-        threshold = THRESHOLDS[carbon_mode]
-        charger_is_on = charger_state is not None and charger_state.state == "on"
-        effective_threshold = (
-            threshold + HYSTERESIS_SIGMA if charger_is_on else threshold
-        )
-        carbon_good = (
-            not carbon_data_unavailable
-            and z_score is not None
-            and fossil_pct is not None
-            and z_score < effective_threshold
-            and fossil_pct < FOSSIL_HARD_FLOOR
+        return _Statistics(
+            mean_7d=mean_7d,
+            stdev_7d=stdev_7d,
+            mean_30d=mean_30d,
+            stdev_30d=stdev_30d,
+            z_score=z_score,
         )
 
-        # ── Fallback / departure windows ──────────────────────────────────────
+    def _evaluate_charging(
+        self,
+        cfg: _ResolvedConfig,
+        sensors: _SensorReadings,
+        stats: _Statistics,
+    ) -> _ChargingDecision:
+        """Determine predicted_state, should_charge, and timing guards."""
+        # Carbon gate (with hysteresis)
+        threshold = THRESHOLDS[cfg.carbon_mode]
+        effective_threshold = (
+            threshold + HYSTERESIS_SIGMA if sensors.charger_is_on else threshold
+        )
+        carbon_good = (
+            not sensors.carbon_data_unavailable
+            and stats.z_score is not None
+            and sensors.fossil_pct is not None
+            and stats.z_score < effective_threshold
+            and sensors.fossil_pct < FOSSIL_HARD_FLOOR
+        )
+
+        # Fallback / departure windows
         now = dt_util.now()
         hour = now.hour
         weekday = now.weekday()
         fallback_window = (
-            (fb1_enabled and _in_hour_window(hour, fb1_start, fb1_end))
-            or (fb2_enabled and _in_hour_window(hour, fb2_start, fb2_end))
+            (cfg.fb1_enabled and _in_hour_window(hour, cfg.fb1_start, cfg.fb1_end))
+            or (cfg.fb2_enabled and _in_hour_window(hour, cfg.fb2_start, cfg.fb2_end))
         )
-        departure_prep = weekday in departure_days and hour >= departure_hour
+        departure_prep = weekday in cfg.departure_days and hour >= cfg.departure_hour
 
-        # ── Predicted state ───────────────────────────────────────────────────
-        if charge_mode == CHARGE_MODE_FORCE_OFF:
+        # Predicted state
+        if cfg.charge_mode == CHARGE_MODE_FORCE_OFF:
             predicted_state = STATE_PAUSED
-        elif charge_mode == CHARGE_MODE_FORCE_ON:
+        elif cfg.charge_mode == CHARGE_MODE_FORCE_ON:
             predicted_state = STATE_OVERRIDE
         elif carbon_good:
             predicted_state = STATE_CARBON
-        elif carbon_data_unavailable and (fallback_window or departure_prep):
+        elif sensors.carbon_data_unavailable and (fallback_window or departure_prep):
             predicted_state = STATE_SCHEDULED
         else:
             predicted_state = STATE_PAUSED
 
-        should_charge = predicted_state in CHARGEABLE_STATES and is_connected
+        should_charge = predicted_state in CHARGEABLE_STATES and sensors.is_connected
 
-        # ── Human-readable status reason ─────────────────────────────────────
-        _DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        if not is_connected:
+        # Human-readable status reason
+        if not sensors.is_connected:
             status_reason = "Not connected"
-        elif charge_mode == CHARGE_MODE_FORCE_OFF:
+        elif cfg.charge_mode == CHARGE_MODE_FORCE_OFF:
             status_reason = "Paused — forced off"
-        elif charge_mode == CHARGE_MODE_FORCE_ON:
+        elif cfg.charge_mode == CHARGE_MODE_FORCE_ON:
             status_reason = "Charging — forced on"
         elif carbon_good:
-            status_reason = f"Charging — grid is clean ({z_score}σ)"
-        elif carbon_data_unavailable and departure_prep:
+            status_reason = f"Charging — grid is clean ({stats.z_score}σ)"
+        elif sensors.carbon_data_unavailable and departure_prep:
             day_name = _DAY_NAMES[weekday]
             status_reason = (
-                f"Charging — departure prep {day_name} {departure_hour:02d}:00"
+                f"Charging — departure prep {day_name} {cfg.departure_hour:02d}:00"
             )
-        elif carbon_data_unavailable and fallback_window:
+        elif sensors.carbon_data_unavailable and fallback_window:
             status_reason = "Charging — fallback window"
-        elif carbon_data_unavailable and data_stale:
+        elif sensors.carbon_data_unavailable and sensors.data_stale:
             status_reason = "Paused — sensor data is stale"
-        elif carbon_data_unavailable:
+        elif sensors.carbon_data_unavailable:
             status_reason = "Paused — waiting for data"
-        elif fossil_pct is not None and fossil_pct >= FOSSIL_HARD_FLOOR:
-            status_reason = f"Paused — fossil fuel too high ({round(fossil_pct)}%)"
+        elif sensors.fossil_pct is not None and sensors.fossil_pct >= FOSSIL_HARD_FLOOR:
+            status_reason = f"Paused — fossil fuel too high ({round(sensors.fossil_pct)}%)"
         else:
-            status_reason = f"Paused — grid too dirty ({z_score}σ)"
+            status_reason = f"Paused — grid too dirty ({stats.z_score}σ)"
 
-        # ── Min dwell (prevents turn-off within 15 min of turn-on) ───────────
+        # Min dwell (prevents turn-off within 15 min of turn-on)
         min_dwell_met = True
-        if charger_is_on and not should_charge and charger_state is not None:
+        if sensors.charger_is_on and not should_charge and sensors.charger_state is not None:
             elapsed_min = (
-                dt_util.utcnow() - charger_state.last_changed
+                dt_util.utcnow() - sensors.charger_state.last_changed
             ).total_seconds() / 60
-            min_dwell_met = elapsed_min >= MIN_DWELL_MINUTES or not is_connected
+            min_dwell_met = elapsed_min >= MIN_DWELL_MINUTES or not sensors.is_connected
 
-        # ── Min cooldown (prevents turn-on shortly after turn-off) ───────────
-        just_reconnected = is_connected and not self._was_connected
-        self._was_connected = is_connected
+        # Min cooldown (prevents turn-on shortly after turn-off)
+        just_reconnected = sensors.is_connected and not self._was_connected
+        self._was_connected = sensors.is_connected
 
         cooldown_met = True
         if (
-            not charger_is_on
+            not sensors.charger_is_on
             and should_charge
-            and charger_state is not None
-            and charge_mode != CHARGE_MODE_FORCE_ON
+            and sensors.charger_state is not None
+            and cfg.charge_mode != CHARGE_MODE_FORCE_ON
             and not just_reconnected
         ):
             off_elapsed_min = (
-                dt_util.utcnow() - charger_state.last_changed
+                dt_util.utcnow() - sensors.charger_state.last_changed
             ).total_seconds() / 60
             cooldown_met = off_elapsed_min >= MIN_COOLDOWN_MINUTES
             if not cooldown_met:
@@ -496,89 +615,72 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
                     MIN_COOLDOWN_MINUTES,
                 )
 
-        # ── Charger control ───────────────────────────────────────────────────
-        if not dry_run:
-            if should_charge and not charger_is_on and cooldown_met:
+        return _ChargingDecision(
+            predicted_state=predicted_state,
+            should_charge=should_charge,
+            carbon_good=carbon_good,
+            fallback_window=fallback_window,
+            departure_prep=departure_prep,
+            status_reason=status_reason,
+            min_dwell_met=min_dwell_met,
+            cooldown_met=cooldown_met,
+        )
+
+    async def _control_devices(
+        self,
+        cfg: _ResolvedConfig,
+        sensors: _SensorReadings,
+        decision: _ChargingDecision,
+        stats: _Statistics,
+    ) -> None:
+        """Control charger switch, LED indicator, and send notifications."""
+        if not cfg.dry_run:
+            if decision.should_charge and not sensors.charger_is_on and decision.cooldown_met:
                 await self.hass.services.async_call(
                     "switch",
                     "turn_on",
-                    {"entity_id": charger_entity},
+                    {"entity_id": cfg.charger_entity},
                     blocking=False,
                 )
-                if notify_service:
+                if cfg.notify_service:
                     await self._async_notify(
-                        notify_service,
+                        cfg.notify_service,
                         "🌿 EV Low-Carbon Charging Started",
-                        f"{predicted_state.title()} mode — Z-score {z_score}σ, "
-                        f"{round(fossil_pct or 0)}% fossil",
+                        f"{decision.predicted_state.title()} mode — Z-score {stats.z_score}σ, "
+                        f"{round(sensors.fossil_pct or 0)}% fossil",
                     )
-            elif not should_charge and charger_is_on and min_dwell_met:
+            elif not decision.should_charge and sensors.charger_is_on and decision.min_dwell_met:
                 await self.hass.services.async_call(
                     "switch",
                     "turn_off",
-                    {"entity_id": charger_entity},
+                    {"entity_id": cfg.charger_entity},
                     blocking=False,
                 )
-                if notify_service:
+                if cfg.notify_service:
                     await self._async_notify(
-                        notify_service,
+                        cfg.notify_service,
                         "⏸ EV Charging Paused",
-                        f"Grid too dirty for {carbon_mode} mode. "
-                        f"Z-score {z_score}σ, {round(fossil_pct or 0)}% fossil.",
+                        f"Grid too dirty for {cfg.carbon_mode} mode. "
+                        f"Z-score {stats.z_score}σ, {round(sensors.fossil_pct or 0)}% fossil.",
                     )
 
-        # ── LED indicator ─────────────────────────────────────────────────────
-        if led_light:
-            hs_colour = LED_COLOUR.get(predicted_state, [0, 100])
+        # LED indicator
+        if cfg.led_light:
+            hs_colour = LED_COLOUR.get(decision.predicted_state, [0, 100])
             await self.hass.services.async_call(
                 "light",
                 "turn_on",
-                {"entity_id": led_light, "brightness": 128, "hs_color": hs_colour},
+                {"entity_id": cfg.led_light, "brightness": 128, "hs_color": hs_colour},
                 blocking=False,
             )
-        if led_effect_select:
-            effect = "Middle Rising" if should_charge else "Slow Blink"
+        if cfg.led_effect_select:
+            effect = "Middle Rising" if decision.should_charge else "Slow Blink"
             await self.hass.services.async_call(
                 "select",
                 "select_option",
-                {"entity_id": led_effect_select, "option": effect},
+                {"entity_id": cfg.led_effect_select, "option": effect},
                 blocking=False,
             )
-
-        # ── Debug log ─────────────────────────────────────────────────────────
-        _LOGGER.info(
-            "[EV] predicted=%s should_charge=%s mode=%s car=%s carbon=%s "
-            "z_score=%s fallback=%s departure=%s unavailable=%s dry_run=%s",
-            predicted_state,
-            should_charge,
-            charge_mode,
-            is_connected,
-            carbon_good,
-            z_score,
-            fallback_window,
-            departure_prep,
-            carbon_data_unavailable,
-            dry_run,
-        )
-
-        return EVCarbonData(
-            co2=co2,
-            fossil_pct=fossil_pct,
-            z_score=z_score,
-            mean_7d=mean_7d,
-            stdev_7d=stdev_7d,
-            mean_30d=mean_30d,
-            stdev_30d=stdev_30d,
-            is_connected=is_connected,
-            carbon_good=carbon_good,
-            carbon_data_unavailable=carbon_data_unavailable,
-            data_stale=data_stale,
-            predicted_state=predicted_state,
-            should_charge=should_charge,
-            status_reason=status_reason,
-            charge_rate_kw=charge_rate_kw,
-            charge_current_a=charge_current_a,
-        )
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
