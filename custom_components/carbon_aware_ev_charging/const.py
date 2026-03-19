@@ -101,13 +101,24 @@ STORAGE_VERSION = 1
 # ── HA platform list ──────────────────────────────────────────────────────────
 PLATFORMS = ["sensor", "binary_sensor", "select", "number", "switch"]
 
+# ── Day-of-week options for selectors ─────────────────────────────────────────
+DAY_OPTIONS: list[dict[str, str]] = [
+    {"value": "0", "label": "Monday"},
+    {"value": "1", "label": "Tuesday"},
+    {"value": "2", "label": "Wednesday"},
+    {"value": "3", "label": "Thursday"},
+    {"value": "4", "label": "Friday"},
+    {"value": "5", "label": "Saturday"},
+    {"value": "6", "label": "Sunday"},
+]
+
 # ── Preference defaults (options that are user-configurable) ──────────────────
 # Single source of truth for coordinator, config_flow, and entity files.
 PREFERENCE_DEFAULTS: dict[str, Any] = {
     CONF_CARBON_MODE: CARBON_MODE_MODERATE,
     CONF_CHARGE_MODE: CHARGE_MODE_AUTO,
     CONF_DEPARTURE_HOUR: 5,
-    CONF_DEPARTURE_DAYS: ["2", "3"],  # Wed, Thu
+    CONF_DEPARTURE_DAYS: ["0", "1", "2", "3", "4"],  # Mon–Fri
     CONF_DRY_RUN: False,
     CONF_NOTIFY_SERVICE: "",
     CONF_FALLBACK_WINDOW_1_START: DEFAULT_FALLBACK_WINDOW_1_START,

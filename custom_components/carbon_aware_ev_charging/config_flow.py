@@ -14,7 +14,6 @@ from homeassistant.helpers.selector import (
     NumberSelector,  # type: ignore[reportUnknownVariableType]
     NumberSelectorConfig,
     NumberSelectorMode,
-    SelectOptionDict,
     SelectSelector,  # type: ignore[reportUnknownVariableType]
     SelectSelectorConfig,
     SelectSelectorMode,
@@ -44,19 +43,10 @@ from .const import (
     CONF_LED_EFFECT_SELECT,
     CONF_LED_LIGHT,
     CONF_NOTIFY_SERVICE,
+    DAY_OPTIONS,
     DOMAIN,
     PREFERENCE_DEFAULTS,
 )
-
-_DAY_OPTIONS = [
-    SelectOptionDict(value="0", label="Monday"),
-    SelectOptionDict(value="1", label="Tuesday"),
-    SelectOptionDict(value="2", label="Wednesday"),
-    SelectOptionDict(value="3", label="Thursday"),
-    SelectOptionDict(value="4", label="Friday"),
-    SelectOptionDict(value="5", label="Saturday"),
-    SelectOptionDict(value="6", label="Sunday"),
-]
 
 
 class EVCarbonChargerConfigFlow(
@@ -204,7 +194,7 @@ class EVCarbonChargerConfigFlow(
                         CONF_DEPARTURE_DAYS, default=PREFERENCE_DEFAULTS[CONF_DEPARTURE_DAYS]
                     ): SelectSelector(
                         SelectSelectorConfig(
-                            options=_DAY_OPTIONS,
+                            options=DAY_OPTIONS,
                             multiple=True,
                             mode=SelectSelectorMode.LIST,
                         )
@@ -335,7 +325,7 @@ class EVCarbonChargerOptionsFlow(config_entries.OptionsFlow):
                         default=current_days_str,
                     ): SelectSelector(
                         SelectSelectorConfig(
-                            options=_DAY_OPTIONS,
+                            options=DAY_OPTIONS,
                             multiple=True,
                             mode=SelectSelectorMode.LIST,
                         )
