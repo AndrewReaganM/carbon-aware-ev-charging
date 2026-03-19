@@ -22,7 +22,6 @@ async def async_setup_entry(
     coordinator: EVCarbonCoordinator = hass.data[DOMAIN][entry.entry_id]
     entities: list[SensorEntity] = [
         EvZScoreSensor(coordinator, entry),
-        EvLowCarbonNowSensor(coordinator, entry),
         EvChargingStatusSensor(coordinator, entry),
         EvChargeCurrentSensor(coordinator, entry),
     ]
@@ -85,39 +84,6 @@ class EvZScoreSensor(_EvBaseEntity, SensorEntity):
             "mean_30d": self._data.mean_30d,
             "stdev_30d": self._data.stdev_30d,
             "co2": self._data.co2,
-        }
-
-
-class EvLowCarbonNowSensor(_EvBaseEntity, SensorEntity):
-    """Boolean gate: True when grid is clean enough to charge."""
-
-    _attr_icon = "mdi:leaf"
-
-    def __init__(
-        self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
-    ) -> None:
-        super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{entry.entry_id}_ev_low_carbon_now"
-        self._attr_name = "EV Low Carbon Now"
-
-    @property
-    def native_value(self) -> str:
-        if not self.coordinator.last_update_success:
-            return "False"
-        return str(self._data.carbon_good)
-
-    @property
-    def available(self) -> bool:  # type: ignore[override]
-        # Always available — returns False during warmup instead of unavailable.
-        return True
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        return {
-            "predicted_state": self._data.predicted_state,
-            "should_charge": self._data.should_charge,
-            "carbon_data_unavailable": self._data.carbon_data_unavailable,
-            "fossil_pct": self._data.fossil_pct,
         }
 
 

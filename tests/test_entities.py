@@ -9,7 +9,10 @@ from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
-from custom_components.carbon_aware_ev_charging.binary_sensor import EvConnectedBinarySensor
+from custom_components.carbon_aware_ev_charging.binary_sensor import (
+    EvConnectedBinarySensor,
+    EvLowCarbonNowBinarySensor,
+)
 from custom_components.carbon_aware_ev_charging.const import (
     CARBON_MODE_MODERATE,
     CARBON_MODE_STRICT,
@@ -30,7 +33,6 @@ from custom_components.carbon_aware_ev_charging.sensor import (
     EvChargeCurrentSensor,
     EvChargeRateKwSensor,
     EvChargingStatusSensor,
-    EvLowCarbonNowSensor,
     EvZScoreSensor,
 )
 
@@ -96,30 +98,30 @@ def test_z_score_sensor_extra_attrs() -> None:
     assert attrs["co2"] == pytest.approx(201.0)
 
 
-# ── EvLowCarbonNowSensor ───────────────────────────────────────────────────────
+# ── EvLowCarbonNowBinarySensor ─────────────────────────────────────────────────
 
 
 def test_low_carbon_now_true() -> None:
     data = EVCarbonData(carbon_good=True, predicted_state=STATE_CARBON)
-    sensor = EvLowCarbonNowSensor(_coord(data), _entry())
+    sensor = EvLowCarbonNowBinarySensor(_coord(data), _entry())
 
-    assert sensor.native_value == "True"
+    assert sensor.is_on is True
 
 
 def test_low_carbon_now_false() -> None:
     data = EVCarbonData(carbon_good=False, predicted_state=STATE_PAUSED)
-    sensor = EvLowCarbonNowSensor(_coord(data), _entry())
+    sensor = EvLowCarbonNowBinarySensor(_coord(data), _entry())
 
-    assert sensor.native_value == "False"
+    assert sensor.is_on is False
 
 
 def test_low_carbon_now_always_available() -> None:
     """Should never be 'unavailable' — returns False during warmup instead."""
     data = EVCarbonData(carbon_good=False)
-    sensor = EvLowCarbonNowSensor(_coord(data, success=False), _entry())
+    sensor = EvLowCarbonNowBinarySensor(_coord(data, success=False), _entry())
 
     assert sensor.available is True
-    assert sensor.native_value == "False"
+    assert sensor.is_on is False
 
 
 def test_low_carbon_now_extra_attrs() -> None:
@@ -130,7 +132,7 @@ def test_low_carbon_now_extra_attrs() -> None:
         carbon_data_unavailable=True,
         fossil_pct=55.0,
     )
-    sensor = EvLowCarbonNowSensor(_coord(data), _entry())
+    sensor = EvLowCarbonNowBinarySensor(_coord(data), _entry())
     attrs = sensor.extra_state_attributes
 
     assert attrs["predicted_state"] == STATE_PAUSED

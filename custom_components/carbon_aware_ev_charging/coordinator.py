@@ -30,17 +30,29 @@ from .const import (
     CONF_DEPARTURE_DAYS,
     CONF_DEPARTURE_HOUR,
     CONF_DRY_RUN,
+    CONF_FALLBACK_WINDOW_1_END,
+    CONF_FALLBACK_WINDOW_1_ENABLED,
+    CONF_FALLBACK_WINDOW_1_START,
+    CONF_FALLBACK_WINDOW_2_END,
+    CONF_FALLBACK_WINDOW_2_ENABLED,
+    CONF_FALLBACK_WINDOW_2_START,
     CONF_FOSSIL_SENSOR,
     CONF_LED_EFFECT_SELECT,
     CONF_LED_LIGHT,
     CONF_NOTIFY_SERVICE,
+    DEFAULT_FALLBACK_WINDOW_1_END,
+    DEFAULT_FALLBACK_WINDOW_1_START,
+    DEFAULT_FALLBACK_WINDOW_2_END,
+    DEFAULT_FALLBACK_WINDOW_2_START,
     DEQUE_30D,
     DEQUE_7D,
     DOMAIN,
     FOSSIL_HARD_FLOOR,
     HYSTERESIS_SIGMA,
     LED_COLOUR,
+    MIN_COOLDOWN_MINUTES,
     MIN_DWELL_MINUTES,
+    STALE_DATA_MINUTES,
     STATE_CARBON,
     STATE_OVERRIDE,
     STATE_PAUSED,
@@ -56,9 +68,19 @@ POLL_INTERVAL = timedelta(minutes=5)
 
 _UNAVAILABLE_STATES = {"unavailable", "unknown", "none", ""}
 
-_LOGGER = logging.getLogger(__name__)
 
-POLL_INTERVAL = timedelta(minutes=5)
+def _in_hour_window(hour: int, start: int, end: int) -> bool:
+    """Return True if *hour* falls inside a [start, end) window.
+
+    Handles midnight wrap-around: start=22, end=6 → 22..23 + 0..5.
+    Returns False when start == end (window disabled).
+    """
+    if start == end:
+        return False
+    if start < end:
+        return start <= hour < end
+    # Wraps midnight
+    return hour >= start or hour < end
 
 
 @dataclass
@@ -75,6 +97,7 @@ class EVCarbonData:
     is_connected: bool = False
     carbon_good: bool = False
     carbon_data_unavailable: bool = True
+    data_stale: bool = False
     predicted_state: str = STATE_PAUSED
     should_charge: bool = False
     status_reason: str = "Unknown"
@@ -99,6 +122,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         self._deque_7d: deque[tuple[float, float]] = deque(maxlen=DEQUE_7D)
         self._deque_30d: deque[tuple[float, float]] = deque(maxlen=DEQUE_30D)
         self._last_z_score: float | None = None
+        self._was_connected: bool = False
 
     async def async_config_entry_first_refresh(self) -> None:
         """Load persisted rolling history before first poll, then refresh."""
@@ -231,6 +255,30 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         notify_service: str = opts.get(
             CONF_NOTIFY_SERVICE, cfg.get(CONF_NOTIFY_SERVICE, "")
         )
+        fb1_start: int = int(opts.get(
+            CONF_FALLBACK_WINDOW_1_START,
+            cfg.get(CONF_FALLBACK_WINDOW_1_START, DEFAULT_FALLBACK_WINDOW_1_START),
+        ))
+        fb1_end: int = int(opts.get(
+            CONF_FALLBACK_WINDOW_1_END,
+            cfg.get(CONF_FALLBACK_WINDOW_1_END, DEFAULT_FALLBACK_WINDOW_1_END),
+        ))
+        fb2_start: int = int(opts.get(
+            CONF_FALLBACK_WINDOW_2_START,
+            cfg.get(CONF_FALLBACK_WINDOW_2_START, DEFAULT_FALLBACK_WINDOW_2_START),
+        ))
+        fb2_end: int = int(opts.get(
+            CONF_FALLBACK_WINDOW_2_END,
+            cfg.get(CONF_FALLBACK_WINDOW_2_END, DEFAULT_FALLBACK_WINDOW_2_END),
+        ))
+        fb1_enabled: bool = bool(opts.get(
+            CONF_FALLBACK_WINDOW_1_ENABLED,
+            cfg.get(CONF_FALLBACK_WINDOW_1_ENABLED, True),
+        ))
+        fb2_enabled: bool = bool(opts.get(
+            CONF_FALLBACK_WINDOW_2_ENABLED,
+            cfg.get(CONF_FALLBACK_WINDOW_2_ENABLED, True),
+        ))
 
         # ── Read sensor states ────────────────────────────────────────────────
         co2_state = self.hass.states.get(co2_entity)
@@ -264,6 +312,24 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
 
         if co2 is None or fossil_pct is None:
             carbon_data_unavailable = True
+
+        # ── Staleness check ───────────────────────────────────────────────
+        data_stale = False
+        stale_threshold = dt_util.utcnow() - timedelta(minutes=STALE_DATA_MINUTES)
+        for _entity, _state in (
+            (co2_entity, co2_state),
+            (fossil_entity, fossil_state),
+        ):
+            if _state is not None and _state.state not in _UNAVAILABLE_STATES:
+                if _state.last_updated < stale_threshold:
+                    _LOGGER.warning(
+                        "[EV] Sensor %s is stale (last_updated=%s, threshold=%s)",
+                        _entity,
+                        _state.last_updated.isoformat(),
+                        stale_threshold.isoformat(),
+                    )
+                    data_stale = True
+                    carbon_data_unavailable = True
 
         is_connected = False
         if charger_state:
@@ -342,7 +408,8 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             threshold + HYSTERESIS_SIGMA if charger_is_on else threshold
         )
         carbon_good = (
-            z_score is not None
+            not carbon_data_unavailable
+            and z_score is not None
             and fossil_pct is not None
             and z_score < effective_threshold
             and fossil_pct < FOSSIL_HARD_FLOOR
@@ -352,7 +419,10 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         now = dt_util.now()
         hour = now.hour
         weekday = now.weekday()
-        fallback_window = (hour >= 22) or (hour < 6) or (11 <= hour < 15)
+        fallback_window = (
+            (fb1_enabled and _in_hour_window(hour, fb1_start, fb1_end))
+            or (fb2_enabled and _in_hour_window(hour, fb2_start, fb2_end))
+        )
         departure_prep = weekday in departure_days and hour >= departure_hour
 
         # ── Predicted state ───────────────────────────────────────────────────
@@ -386,6 +456,8 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             )
         elif carbon_data_unavailable and fallback_window:
             status_reason = "Charging — fallback window"
+        elif carbon_data_unavailable and data_stale:
+            status_reason = "Paused — sensor data is stale"
         elif carbon_data_unavailable:
             status_reason = "Paused — waiting for data"
         elif fossil_pct is not None and fossil_pct >= FOSSIL_HARD_FLOOR:
@@ -401,9 +473,32 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             ).total_seconds() / 60
             min_dwell_met = elapsed_min >= MIN_DWELL_MINUTES or not is_connected
 
+        # ── Min cooldown (prevents turn-on shortly after turn-off) ───────────
+        just_reconnected = is_connected and not self._was_connected
+        self._was_connected = is_connected
+
+        cooldown_met = True
+        if (
+            not charger_is_on
+            and should_charge
+            and charger_state is not None
+            and charge_mode != CHARGE_MODE_FORCE_ON
+            and not just_reconnected
+        ):
+            off_elapsed_min = (
+                dt_util.utcnow() - charger_state.last_changed
+            ).total_seconds() / 60
+            cooldown_met = off_elapsed_min >= MIN_COOLDOWN_MINUTES
+            if not cooldown_met:
+                _LOGGER.debug(
+                    "[EV] Cooldown active: charger off for %.1f min, need %d min",
+                    off_elapsed_min,
+                    MIN_COOLDOWN_MINUTES,
+                )
+
         # ── Charger control ───────────────────────────────────────────────────
         if not dry_run:
-            if should_charge and not charger_is_on:
+            if should_charge and not charger_is_on and cooldown_met:
                 await self.hass.services.async_call(
                     "switch",
                     "turn_on",
@@ -477,6 +572,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             is_connected=is_connected,
             carbon_good=carbon_good,
             carbon_data_unavailable=carbon_data_unavailable,
+            data_stale=data_stale,
             predicted_state=predicted_state,
             should_charge=should_charge,
             status_reason=status_reason,
