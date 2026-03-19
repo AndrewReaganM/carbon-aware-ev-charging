@@ -27,6 +27,12 @@ from custom_components.carbon_aware_ev_charging.const import (
     CONF_DEPARTURE_DAYS,
     CONF_DEPARTURE_HOUR,
     CONF_DRY_RUN,
+    CONF_FALLBACK_WINDOW_1_ENABLED,
+    CONF_FALLBACK_WINDOW_1_END,
+    CONF_FALLBACK_WINDOW_1_START,
+    CONF_FALLBACK_WINDOW_2_ENABLED,
+    CONF_FALLBACK_WINDOW_2_END,
+    CONF_FALLBACK_WINDOW_2_START,
     CONF_FOSSIL_SENSOR,
     CONF_LED_EFFECT_SELECT,
     CONF_LED_LIGHT,
@@ -597,3 +603,95 @@ async def test_unavailable_sensor_not_checked_for_staleness(hass: HomeAssistant)
 
     assert data.data_stale is False  # not stale — just unavailable
     assert data.carbon_data_unavailable is True  # still unavailable though
+
+
+# ── Configurable fallback windows ──────────────────────────────────────────────
+
+
+async def test_custom_fallback_window_activates(hass: HomeAssistant) -> None:
+    """Custom window 1 set to 20:00–04:00 at hour 21 → STATE_SCHEDULED."""
+    hass.states.async_set("sensor.co2", "unavailable")
+    hass.states.async_set("sensor.fossil", "unavailable")
+    hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
+
+    coord = _make_coord(hass, options_overrides={
+        CONF_FALLBACK_WINDOW_1_START: 20,
+        CONF_FALLBACK_WINDOW_1_END: 4,
+        CONF_FALLBACK_WINDOW_1_ENABLED: True,
+        CONF_FALLBACK_WINDOW_2_ENABLED: False,
+    })
+
+    # Monday 21:00 → inside custom window 1
+    fake_now = datetime(2026, 3, 16, 21, 0, tzinfo=timezone.utc)
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = fake_now
+        mock_dt.now.return_value = fake_now
+        data = await _run(coord)
+
+    assert data.predicted_state == STATE_SCHEDULED
+
+
+async def test_custom_fallback_window_outside(hass: HomeAssistant) -> None:
+    """Custom window 1 set to 20:00–04:00, hour 10 → STATE_PAUSED."""
+    hass.states.async_set("sensor.co2", "unavailable")
+    hass.states.async_set("sensor.fossil", "unavailable")
+    hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
+
+    coord = _make_coord(hass, options_overrides={
+        CONF_FALLBACK_WINDOW_1_START: 20,
+        CONF_FALLBACK_WINDOW_1_END: 4,
+        CONF_FALLBACK_WINDOW_1_ENABLED: True,
+        CONF_FALLBACK_WINDOW_2_ENABLED: False,
+    })
+
+    # Monday 10:00 → outside both windows
+    fake_now = datetime(2026, 3, 16, 10, 0, tzinfo=timezone.utc)
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = fake_now
+        mock_dt.now.return_value = fake_now
+        data = await _run(coord)
+
+    assert data.predicted_state == STATE_PAUSED
+
+
+async def test_fallback_window_disabled(hass: HomeAssistant) -> None:
+    """Both windows disabled → no fallback even during default window hours."""
+    hass.states.async_set("sensor.co2", "unavailable")
+    hass.states.async_set("sensor.fossil", "unavailable")
+    hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
+
+    coord = _make_coord(hass, options_overrides={
+        CONF_FALLBACK_WINDOW_1_ENABLED: False,
+        CONF_FALLBACK_WINDOW_2_ENABLED: False,
+    })
+
+    # Monday 23:00 → would normally be in default window 1 (22–06)
+    fake_now = datetime(2026, 3, 16, 23, 0, tzinfo=timezone.utc)
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = fake_now
+        mock_dt.now.return_value = fake_now
+        data = await _run(coord)
+
+    assert data.predicted_state == STATE_PAUSED
+
+
+async def test_fallback_window_2_activates(hass: HomeAssistant) -> None:
+    """Window 1 disabled, window 2 at 12:00–16:00, hour 13 → STATE_SCHEDULED."""
+    hass.states.async_set("sensor.co2", "unavailable")
+    hass.states.async_set("sensor.fossil", "unavailable")
+    hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
+
+    coord = _make_coord(hass, options_overrides={
+        CONF_FALLBACK_WINDOW_1_ENABLED: False,
+        CONF_FALLBACK_WINDOW_2_START: 12,
+        CONF_FALLBACK_WINDOW_2_END: 16,
+        CONF_FALLBACK_WINDOW_2_ENABLED: True,
+    })
+
+    fake_now = datetime(2026, 3, 16, 13, 0, tzinfo=timezone.utc)
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = fake_now
+        mock_dt.now.return_value = fake_now
+        data = await _run(coord)
+
+    assert data.predicted_state == STATE_SCHEDULED

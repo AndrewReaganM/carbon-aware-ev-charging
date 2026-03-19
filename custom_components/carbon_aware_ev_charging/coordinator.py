@@ -30,10 +30,20 @@ from .const import (
     CONF_DEPARTURE_DAYS,
     CONF_DEPARTURE_HOUR,
     CONF_DRY_RUN,
+    CONF_FALLBACK_WINDOW_1_END,
+    CONF_FALLBACK_WINDOW_1_ENABLED,
+    CONF_FALLBACK_WINDOW_1_START,
+    CONF_FALLBACK_WINDOW_2_END,
+    CONF_FALLBACK_WINDOW_2_ENABLED,
+    CONF_FALLBACK_WINDOW_2_START,
     CONF_FOSSIL_SENSOR,
     CONF_LED_EFFECT_SELECT,
     CONF_LED_LIGHT,
     CONF_NOTIFY_SERVICE,
+    DEFAULT_FALLBACK_WINDOW_1_END,
+    DEFAULT_FALLBACK_WINDOW_1_START,
+    DEFAULT_FALLBACK_WINDOW_2_END,
+    DEFAULT_FALLBACK_WINDOW_2_START,
     DEQUE_30D,
     DEQUE_7D,
     DOMAIN,
@@ -58,9 +68,19 @@ POLL_INTERVAL = timedelta(minutes=5)
 
 _UNAVAILABLE_STATES = {"unavailable", "unknown", "none", ""}
 
-_LOGGER = logging.getLogger(__name__)
 
-POLL_INTERVAL = timedelta(minutes=5)
+def _in_hour_window(hour: int, start: int, end: int) -> bool:
+    """Return True if *hour* falls inside a [start, end) window.
+
+    Handles midnight wrap-around: start=22, end=6 → 22..23 + 0..5.
+    Returns False when start == end (window disabled).
+    """
+    if start == end:
+        return False
+    if start < end:
+        return start <= hour < end
+    # Wraps midnight
+    return hour >= start or hour < end
 
 
 @dataclass
@@ -235,6 +255,30 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         notify_service: str = opts.get(
             CONF_NOTIFY_SERVICE, cfg.get(CONF_NOTIFY_SERVICE, "")
         )
+        fb1_start: int = int(opts.get(
+            CONF_FALLBACK_WINDOW_1_START,
+            cfg.get(CONF_FALLBACK_WINDOW_1_START, DEFAULT_FALLBACK_WINDOW_1_START),
+        ))
+        fb1_end: int = int(opts.get(
+            CONF_FALLBACK_WINDOW_1_END,
+            cfg.get(CONF_FALLBACK_WINDOW_1_END, DEFAULT_FALLBACK_WINDOW_1_END),
+        ))
+        fb2_start: int = int(opts.get(
+            CONF_FALLBACK_WINDOW_2_START,
+            cfg.get(CONF_FALLBACK_WINDOW_2_START, DEFAULT_FALLBACK_WINDOW_2_START),
+        ))
+        fb2_end: int = int(opts.get(
+            CONF_FALLBACK_WINDOW_2_END,
+            cfg.get(CONF_FALLBACK_WINDOW_2_END, DEFAULT_FALLBACK_WINDOW_2_END),
+        ))
+        fb1_enabled: bool = bool(opts.get(
+            CONF_FALLBACK_WINDOW_1_ENABLED,
+            cfg.get(CONF_FALLBACK_WINDOW_1_ENABLED, True),
+        ))
+        fb2_enabled: bool = bool(opts.get(
+            CONF_FALLBACK_WINDOW_2_ENABLED,
+            cfg.get(CONF_FALLBACK_WINDOW_2_ENABLED, True),
+        ))
 
         # ── Read sensor states ────────────────────────────────────────────────
         co2_state = self.hass.states.get(co2_entity)
@@ -375,7 +419,10 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         now = dt_util.now()
         hour = now.hour
         weekday = now.weekday()
-        fallback_window = (hour >= 22) or (hour < 6) or (11 <= hour < 15)
+        fallback_window = (
+            (fb1_enabled and _in_hour_window(hour, fb1_start, fb1_end))
+            or (fb2_enabled and _in_hour_window(hour, fb2_start, fb2_end))
+        )
         departure_prep = weekday in departure_days and hour >= departure_hour
 
         # ── Predicted state ───────────────────────────────────────────────────

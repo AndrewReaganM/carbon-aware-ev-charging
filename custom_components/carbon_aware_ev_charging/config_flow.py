@@ -35,10 +35,20 @@ from .const import (
     CONF_DEPARTURE_DAYS,
     CONF_DEPARTURE_HOUR,
     CONF_DRY_RUN,
+    CONF_FALLBACK_WINDOW_1_END,
+    CONF_FALLBACK_WINDOW_1_ENABLED,
+    CONF_FALLBACK_WINDOW_1_START,
+    CONF_FALLBACK_WINDOW_2_END,
+    CONF_FALLBACK_WINDOW_2_ENABLED,
+    CONF_FALLBACK_WINDOW_2_START,
     CONF_FOSSIL_SENSOR,
     CONF_LED_EFFECT_SELECT,
     CONF_LED_LIGHT,
     CONF_NOTIFY_SERVICE,
+    DEFAULT_FALLBACK_WINDOW_1_END,
+    DEFAULT_FALLBACK_WINDOW_1_START,
+    DEFAULT_FALLBACK_WINDOW_2_END,
+    DEFAULT_FALLBACK_WINDOW_2_START,
     DOMAIN,
 )
 
@@ -162,6 +172,12 @@ class EVCarbonChargerConfigFlow(
                     CONF_CARBON_MODE: user_input[CONF_CARBON_MODE],
                     CONF_DEPARTURE_HOUR: int(user_input[CONF_DEPARTURE_HOUR]),
                     CONF_DEPARTURE_DAYS: user_input[CONF_DEPARTURE_DAYS],
+                    CONF_FALLBACK_WINDOW_1_ENABLED: user_input[CONF_FALLBACK_WINDOW_1_ENABLED],
+                    CONF_FALLBACK_WINDOW_1_START: int(user_input[CONF_FALLBACK_WINDOW_1_START]),
+                    CONF_FALLBACK_WINDOW_1_END: int(user_input[CONF_FALLBACK_WINDOW_1_END]),
+                    CONF_FALLBACK_WINDOW_2_ENABLED: user_input[CONF_FALLBACK_WINDOW_2_ENABLED],
+                    CONF_FALLBACK_WINDOW_2_START: int(user_input[CONF_FALLBACK_WINDOW_2_START]),
+                    CONF_FALLBACK_WINDOW_2_END: int(user_input[CONF_FALLBACK_WINDOW_2_END]),
                     CONF_DRY_RUN: user_input[CONF_DRY_RUN],
                     CONF_NOTIFY_SERVICE: notify,
                 }
@@ -200,6 +216,44 @@ class EVCarbonChargerConfigFlow(
                         )
                     ),
                     vol.Optional(CONF_DRY_RUN, default=False): BooleanSelector(),
+                    vol.Required(
+                        CONF_FALLBACK_WINDOW_1_ENABLED, default=True
+                    ): BooleanSelector(),
+                    vol.Required(
+                        CONF_FALLBACK_WINDOW_1_START,
+                        default=DEFAULT_FALLBACK_WINDOW_1_START,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
+                        )
+                    ),
+                    vol.Required(
+                        CONF_FALLBACK_WINDOW_1_END,
+                        default=DEFAULT_FALLBACK_WINDOW_1_END,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
+                        )
+                    ),
+                    vol.Required(
+                        CONF_FALLBACK_WINDOW_2_ENABLED, default=True
+                    ): BooleanSelector(),
+                    vol.Required(
+                        CONF_FALLBACK_WINDOW_2_START,
+                        default=DEFAULT_FALLBACK_WINDOW_2_START,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
+                        )
+                    ),
+                    vol.Required(
+                        CONF_FALLBACK_WINDOW_2_END,
+                        default=DEFAULT_FALLBACK_WINDOW_2_END,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
+                        )
+                    ),
                     vol.Optional(
                         CONF_NOTIFY_SERVICE, default=""
                     ): TextSelector(
@@ -243,6 +297,12 @@ class EVCarbonChargerOptionsFlow(config_entries.OptionsFlow):
                         CONF_CARBON_MODE: user_input[CONF_CARBON_MODE],
                         CONF_DEPARTURE_HOUR: int(user_input[CONF_DEPARTURE_HOUR]),
                         CONF_DEPARTURE_DAYS: user_input[CONF_DEPARTURE_DAYS],
+                        CONF_FALLBACK_WINDOW_1_ENABLED: user_input[CONF_FALLBACK_WINDOW_1_ENABLED],
+                        CONF_FALLBACK_WINDOW_1_START: int(user_input[CONF_FALLBACK_WINDOW_1_START]),
+                        CONF_FALLBACK_WINDOW_1_END: int(user_input[CONF_FALLBACK_WINDOW_1_END]),
+                        CONF_FALLBACK_WINDOW_2_ENABLED: user_input[CONF_FALLBACK_WINDOW_2_ENABLED],
+                        CONF_FALLBACK_WINDOW_2_START: int(user_input[CONF_FALLBACK_WINDOW_2_START]),
+                        CONF_FALLBACK_WINDOW_2_END: int(user_input[CONF_FALLBACK_WINDOW_2_END]),
                         CONF_DRY_RUN: user_input[CONF_DRY_RUN],
                         CONF_NOTIFY_SERVICE: notify,
                     },
@@ -287,6 +347,46 @@ class EVCarbonChargerOptionsFlow(config_entries.OptionsFlow):
                         CONF_DRY_RUN,
                         default=opts.get(CONF_DRY_RUN, False),
                     ): BooleanSelector(),
+                    vol.Required(
+                        CONF_FALLBACK_WINDOW_1_ENABLED,
+                        default=opts.get(CONF_FALLBACK_WINDOW_1_ENABLED, True),
+                    ): BooleanSelector(),
+                    vol.Required(
+                        CONF_FALLBACK_WINDOW_1_START,
+                        default=opts.get(CONF_FALLBACK_WINDOW_1_START, DEFAULT_FALLBACK_WINDOW_1_START),
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
+                        )
+                    ),
+                    vol.Required(
+                        CONF_FALLBACK_WINDOW_1_END,
+                        default=opts.get(CONF_FALLBACK_WINDOW_1_END, DEFAULT_FALLBACK_WINDOW_1_END),
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
+                        )
+                    ),
+                    vol.Required(
+                        CONF_FALLBACK_WINDOW_2_ENABLED,
+                        default=opts.get(CONF_FALLBACK_WINDOW_2_ENABLED, True),
+                    ): BooleanSelector(),
+                    vol.Required(
+                        CONF_FALLBACK_WINDOW_2_START,
+                        default=opts.get(CONF_FALLBACK_WINDOW_2_START, DEFAULT_FALLBACK_WINDOW_2_START),
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
+                        )
+                    ),
+                    vol.Required(
+                        CONF_FALLBACK_WINDOW_2_END,
+                        default=opts.get(CONF_FALLBACK_WINDOW_2_END, DEFAULT_FALLBACK_WINDOW_2_END),
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
+                        )
+                    ),
                     vol.Optional(
                         CONF_NOTIFY_SERVICE,
                         default=opts.get(CONF_NOTIFY_SERVICE, ""),

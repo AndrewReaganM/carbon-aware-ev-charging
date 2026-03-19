@@ -19,6 +19,12 @@ CONF_DEPARTURE_HOUR = "departure_hour"
 CONF_DEPARTURE_DAYS = "departure_days"
 CONF_DRY_RUN = "dry_run"
 CONF_NOTIFY_SERVICE = "notify_service"
+CONF_FALLBACK_WINDOW_1_START = "fallback_window_1_start"
+CONF_FALLBACK_WINDOW_1_END = "fallback_window_1_end"
+CONF_FALLBACK_WINDOW_1_ENABLED = "fallback_window_1_enabled"
+CONF_FALLBACK_WINDOW_2_START = "fallback_window_2_start"
+CONF_FALLBACK_WINDOW_2_END = "fallback_window_2_end"
+CONF_FALLBACK_WINDOW_2_ENABLED = "fallback_window_2_enabled"
 
 # ── Carbon sensitivity modes ──────────────────────────────────────────────────
 CARBON_MODE_LENIENT = "Lenient"
@@ -57,6 +63,12 @@ MIN_COOLDOWN_MINUTES = 10
 # Sensor staleness threshold — treat data as unavailable after this many minutes
 STALE_DATA_MINUTES = 30
 
+# Default fallback windows (hours, 0-23)
+DEFAULT_FALLBACK_WINDOW_1_START = 22  # overnight window: 22:00–06:00
+DEFAULT_FALLBACK_WINDOW_1_END = 6
+DEFAULT_FALLBACK_WINDOW_2_START = 11  # midday window: 11:00–15:00
+DEFAULT_FALLBACK_WINDOW_2_END = 15
+
 # ── Charge modes ──────────────────────────────────────────────────────────────
 CHARGE_MODE_AUTO = "auto"
 CHARGE_MODE_FORCE_ON = "force_on"
@@ -84,4 +96,4 @@ STORAGE_KEY = f"{DOMAIN}.rolling_stats"
 STORAGE_VERSION = 1
 
 # ── HA platform list ──────────────────────────────────────────────────────────
-PLATFORMS = ["sensor", "binary_sensor", "select", "number"]
+PLATFORMS = ["sensor", "binary_sensor", "select", "number", "switch"]

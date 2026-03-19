@@ -215,3 +215,31 @@ class TestReloadSpikeGuard:
         # If last_z is None and guard fails, z_score stays None
         result = last_z if z_score is None else z_score
         assert result is None
+
+
+# ── _in_hour_window helper ────────────────────────────────────────────────────
+
+class TestInHourWindow:
+    """Unit tests for the _in_hour_window helper."""
+
+    def test_normal_window(self):
+        from custom_components.carbon_aware_ev_charging.coordinator import _in_hour_window
+        assert _in_hour_window(12, 11, 15) is True
+        assert _in_hour_window(11, 11, 15) is True
+        assert _in_hour_window(14, 11, 15) is True
+        assert _in_hour_window(15, 11, 15) is False
+        assert _in_hour_window(10, 11, 15) is False
+
+    def test_midnight_wrap(self):
+        from custom_components.carbon_aware_ev_charging.coordinator import _in_hour_window
+        # 22:00–06:00
+        assert _in_hour_window(23, 22, 6) is True
+        assert _in_hour_window(0, 22, 6) is True
+        assert _in_hour_window(5, 22, 6) is True
+        assert _in_hour_window(6, 22, 6) is False
+        assert _in_hour_window(21, 22, 6) is False
+
+    def test_disabled_when_start_equals_end(self):
+        from custom_components.carbon_aware_ev_charging.coordinator import _in_hour_window
+        assert _in_hour_window(12, 12, 12) is False
+        assert _in_hour_window(0, 0, 0) is False

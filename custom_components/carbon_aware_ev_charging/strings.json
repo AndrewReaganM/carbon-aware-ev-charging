@@ -40,6 +40,12 @@
           "departure_hour": "Departure Prep Start Hour",
           "departure_days": "Departure Days",
           "dry_run": "Dry Run (log only — do not switch charger)",
+          "fallback_window_1_enabled": "Enable Fallback Window 1 (Overnight)",
+          "fallback_window_1_start": "Fallback Window 1 — Start Hour",
+          "fallback_window_1_end": "Fallback Window 1 — End Hour",
+          "fallback_window_2_enabled": "Enable Fallback Window 2 (Midday)",
+          "fallback_window_2_start": "Fallback Window 2 — Start Hour",
+          "fallback_window_2_end": "Fallback Window 2 — End Hour",
           "notify_service": "Push Notification Service (optional)"
         },
         "data_description": {
@@ -47,6 +53,12 @@
           "departure_hour": "Hour (0-23) after which departure-prep charging activates on selected days.",
           "departure_days": "Days of the week when departure-prep logic applies.",
           "dry_run": "Enable to test logic without actually controlling the charger.",
+          "fallback_window_1_enabled": "When enabled, the charger may activate during this window if carbon data is unavailable.",
+          "fallback_window_1_start": "Start hour for fallback window 1 (overnight).",
+          "fallback_window_1_end": "End hour for fallback window 1 (overnight).",
+          "fallback_window_2_enabled": "When enabled, the charger may activate during this window if carbon data is unavailable.",
+          "fallback_window_2_start": "Start hour for fallback window 2 (midday).",
+          "fallback_window_2_end": "End hour for fallback window 2 (midday).",
           "notify_service": "Full service name, e.g. notify.mobile_app_my_iphone. Leave blank to disable."
         }
       }
@@ -68,6 +80,12 @@
           "departure_hour": "Departure Prep Start Hour",
           "departure_days": "Departure Days",
           "dry_run": "Dry Run (log only — do not switch charger)",
+          "fallback_window_1_enabled": "Enable Fallback Window 1 (Overnight)",
+          "fallback_window_1_start": "Fallback Window 1 — Start Hour",
+          "fallback_window_1_end": "Fallback Window 1 — End Hour",
+          "fallback_window_2_enabled": "Enable Fallback Window 2 (Midday)",
+          "fallback_window_2_start": "Fallback Window 2 — Start Hour",
+          "fallback_window_2_end": "Fallback Window 2 — End Hour",
           "notify_service": "Push Notification Service (optional)"
         },
         "data_description": {
@@ -75,6 +93,12 @@
           "departure_hour": "Hour (0–23) after which departure-prep charging activates on selected days.",
           "departure_days": "Days of the week when departure-prep logic applies.",
           "dry_run": "Enable to test logic without actually controlling the charger.",
+          "fallback_window_1_enabled": "When enabled, the charger may activate during this window if carbon data is unavailable.",
+          "fallback_window_1_start": "Start hour for fallback window 1 (overnight).",
+          "fallback_window_1_end": "End hour for fallback window 1 (overnight).",
+          "fallback_window_2_enabled": "When enabled, the charger may activate during this window if carbon data is unavailable.",
+          "fallback_window_2_start": "Start hour for fallback window 2 (midday).",
+          "fallback_window_2_end": "End hour for fallback window 2 (midday).",
           "notify_service": "Full service name, e.g. notify.mobile_app_my_iphone. Leave blank to disable."
         }
       }
