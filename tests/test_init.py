@@ -1,6 +1,7 @@
 """Tests for Carbon-Aware EV Charging integration setup/unload lifecycle (__init__.py)."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -109,5 +110,193 @@ async def test_setup_entry_with_persisted_history(hass: HomeAssistant) -> None:
     # z_score is recalculated from the restored deque + fresh CO2 reading,
     # so it won't match the persisted value (-0.25).
     assert coordinator._last_z_score == pytest.approx(-1.5)
+
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+# ── Recorder backfill tests ───────────────────────────────────────────────────
+
+
+def _make_fake_state(state_val: str, last_updated: datetime) -> MagicMock:
+    """Build a minimal mock of a recorder State object."""
+    s = MagicMock()
+    s.state = state_val
+    s.last_updated = last_updated
+    return s
+
+
+async def test_backfill_populates_empty_deques(hass: HomeAssistant) -> None:
+    """When Store is empty, recorder history seeds the deques."""
+    hass.states.async_set("sensor.co2", "200")
+    hass.states.async_set("sensor.fossil", "40")
+    hass.states.async_set("switch.charger", "off", {"icon_name": "CarNotConnected"})
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=_VALID_DATA,
+        options=_VALID_OPTIONS,
+    )
+    entry.add_to_hass(hass)
+
+    now = datetime.now(tz=timezone.utc)
+    # 20 states spread over the last 3 days (all within 7d window)
+    fake_states = [
+        _make_fake_state(str(180 + i), now - timedelta(hours=i * 3))
+        for i in range(20)
+    ]
+
+    async def fake_backfill(self_coord):
+        """Simulate a successful recorder backfill."""
+        cutoff_7d = now - timedelta(days=7)
+        self_coord._load_recorder_states(fake_states, cutoff_7d)
+
+    with (
+        patch("custom_components.carbon_aware_ev_charging.coordinator.Store") as MockStore,
+        patch.object(
+            type(hass.data.get(DOMAIN, {}).get(entry.entry_id, object())),
+            "_async_backfill_from_recorder",
+            new=fake_backfill,
+        ) if False else
+        patch(
+            "custom_components.carbon_aware_ev_charging.coordinator.EVCarbonCoordinator._async_backfill_from_recorder",
+            new=fake_backfill,
+        ),
+    ):
+        store_inst = MagicMock()
+        store_inst.async_load = AsyncMock(return_value=None)  # empty store
+        store_inst.async_save = AsyncMock()
+        MockStore.return_value = store_inst
+
+        await hass.config_entries.async_setup(entry.entry_id)
+
+    from custom_components.carbon_aware_ev_charging.coordinator import EVCarbonCoordinator
+
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    assert isinstance(coordinator, EVCarbonCoordinator)
+    # 20 from recorder + 1 from the first _async_update_data poll
+    assert len(coordinator._deque_30d) == 21
+    assert len(coordinator._deque_7d) == 21  # all within 7d
+
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_backfill_skips_unavailable_states(hass: HomeAssistant) -> None:
+    """Recorder states with 'unavailable' or 'unknown' are filtered out."""
+    hass.states.async_set("sensor.co2", "200")
+    hass.states.async_set("sensor.fossil", "40")
+    hass.states.async_set("switch.charger", "off", {"icon_name": "CarNotConnected"})
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=_VALID_DATA,
+        options=_VALID_OPTIONS,
+    )
+    entry.add_to_hass(hass)
+
+    now = datetime.now(tz=timezone.utc)
+    fake_states = [
+        _make_fake_state("200", now - timedelta(hours=2)),
+        _make_fake_state("unavailable", now - timedelta(hours=1)),
+        _make_fake_state("unknown", now - timedelta(minutes=30)),
+        _make_fake_state("210", now - timedelta(minutes=10)),
+    ]
+
+    async def fake_backfill(self_coord):
+        cutoff_7d = now - timedelta(days=7)
+        self_coord._load_recorder_states(fake_states, cutoff_7d)
+
+    with (
+        patch("custom_components.carbon_aware_ev_charging.coordinator.Store") as MockStore,
+        patch(
+            "custom_components.carbon_aware_ev_charging.coordinator.EVCarbonCoordinator._async_backfill_from_recorder",
+            new=fake_backfill,
+        ),
+    ):
+        store_inst = MagicMock()
+        store_inst.async_load = AsyncMock(return_value=None)
+        store_inst.async_save = AsyncMock()
+        MockStore.return_value = store_inst
+
+        await hass.config_entries.async_setup(entry.entry_id)
+
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    # 2 valid from recorder + 1 from live poll = 3
+    assert len(coordinator._deque_30d) == 3
+
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_backfill_skipped_when_store_has_data(hass: HomeAssistant) -> None:
+    """Recorder backfill does not run when Store already has history."""
+    hass.states.async_set("sensor.co2", "200")
+    hass.states.async_set("sensor.fossil", "40")
+    hass.states.async_set("switch.charger", "off", {"icon_name": "CarNotConnected"})
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=_VALID_DATA,
+        options=_VALID_OPTIONS,
+    )
+    entry.add_to_hass(hass)
+
+    fake_history = [[1_000_000_000 + i * 300, float(200 + i)] for i in range(10)]
+
+    backfill_called = False
+
+    async def spy_backfill(self_coord):
+        nonlocal backfill_called
+        backfill_called = True
+
+    with (
+        patch("custom_components.carbon_aware_ev_charging.coordinator.Store") as MockStore,
+        patch(
+            "custom_components.carbon_aware_ev_charging.coordinator.EVCarbonCoordinator._async_backfill_from_recorder",
+            new=spy_backfill,
+        ),
+    ):
+        store_inst = MagicMock()
+        store_inst.async_load = AsyncMock(
+            return_value={
+                "deque_7d": fake_history,
+                "deque_30d": fake_history,
+                "last_z_score": 0.0,
+            }
+        )
+        store_inst.async_save = AsyncMock()
+        MockStore.return_value = store_inst
+
+        await hass.config_entries.async_setup(entry.entry_id)
+
+    # Backfill should NOT have been called
+    assert backfill_called is False
+
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_backfill_handles_recorder_not_running(hass: HomeAssistant) -> None:
+    """Backfill gracefully no-ops when recorder is not running."""
+    hass.states.async_set("sensor.co2", "200")
+    hass.states.async_set("sensor.fossil", "40")
+    hass.states.async_set("switch.charger", "off", {"icon_name": "CarNotConnected"})
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=_VALID_DATA,
+        options=_VALID_OPTIONS,
+    )
+    entry.add_to_hass(hass)
+
+    # Don't patch backfill — let it run, but recorder isn't set up in test HA,
+    # so get_instance will raise KeyError which the code catches gracefully.
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.Store") as MockStore:
+        store_inst = MagicMock()
+        store_inst.async_load = AsyncMock(return_value=None)
+        store_inst.async_save = AsyncMock()
+        MockStore.return_value = store_inst
+
+        result = await hass.config_entries.async_setup(entry.entry_id)
+
+    # Should still set up successfully, just without backfill
+    assert result is True
 
     await hass.config_entries.async_unload(entry.entry_id)

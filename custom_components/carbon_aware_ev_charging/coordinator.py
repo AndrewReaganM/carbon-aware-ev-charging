@@ -5,7 +5,7 @@ import logging
 import statistics
 from collections import deque
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -54,6 +54,12 @@ _LOGGER = logging.getLogger(__name__)
 
 POLL_INTERVAL = timedelta(minutes=5)
 
+_UNAVAILABLE_STATES = {"unavailable", "unknown", "none", ""}
+
+_LOGGER = logging.getLogger(__name__)
+
+POLL_INTERVAL = timedelta(minutes=5)
+
 
 @dataclass
 class EVCarbonData:
@@ -71,6 +77,7 @@ class EVCarbonData:
     carbon_data_unavailable: bool = True
     predicted_state: str = STATE_PAUSED
     should_charge: bool = False
+    status_reason: str = "Unknown"
     charge_rate_kw: float | None = None
     charge_current_a: int | None = None
 
@@ -107,7 +114,88 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
                 len(self._deque_7d),
                 len(self._deque_30d),
             )
+
+        # If deques are still empty (first install), try backfilling from
+        # the HA recorder so we don't have to wait 7 days for useful data.
+        if not self._deque_7d:
+            await self._async_backfill_from_recorder()
+
         await super().async_config_entry_first_refresh()
+
+    async def _async_backfill_from_recorder(self) -> None:
+        """Seed rolling deques from the recorder's existing CO₂ history."""
+        try:
+            from homeassistant.components.recorder import get_instance  # noqa: PLC0415
+            from homeassistant.components.recorder.history import (  # noqa: PLC0415
+                state_changes_during_period,
+            )
+        except ImportError:
+            _LOGGER.debug("[EV] Recorder not available — skipping history backfill")
+            return
+
+        try:
+            recorder = get_instance(self.hass)
+        except (KeyError, RuntimeError):
+            _LOGGER.debug("[EV] Recorder not running — skipping history backfill")
+            return
+
+        co2_entity: str = self.entry.data[CONF_CO2_SENSOR]
+
+        now = dt_util.utcnow()
+        start_30d = now - timedelta(days=30)
+        start_7d = now - timedelta(days=7)
+
+        try:
+            history: dict[str, list] = await recorder.async_add_executor_job(
+                state_changes_during_period,
+                self.hass,
+                start_30d,
+                now,
+                co2_entity,
+                True,  # no_attributes — we only need the state value
+            )
+        except Exception:
+            _LOGGER.debug(
+                "[EV] Recorder query failed — skipping history backfill",
+                exc_info=True,
+            )
+            return
+
+        self._load_recorder_states(history.get(co2_entity, []), start_7d)
+
+    def _load_recorder_states(
+        self, states: list, start_7d: datetime,
+    ) -> None:
+        """Parse recorder State objects into the rolling deques."""
+        if not states:
+            _LOGGER.debug("[EV] No recorder history found — nothing to backfill")
+            return
+
+        count_30d = 0
+        count_7d = 0
+        cutoff_7d = start_7d.timestamp()
+        for state in states:
+            raw = state.state if hasattr(state, "state") else str(state)
+            if raw in _UNAVAILABLE_STATES:
+                continue
+            try:
+                co2_val = float(raw)
+            except (ValueError, TypeError):
+                continue
+            ts = state.last_updated.timestamp() if hasattr(state, "last_updated") else 0.0
+            self._deque_30d.append((ts, co2_val))
+            count_30d += 1
+            if ts >= cutoff_7d:
+                self._deque_7d.append((ts, co2_val))
+                count_7d += 1
+
+        if count_30d:
+            _LOGGER.info(
+                "[EV] Backfilled %d 30d and %d 7d history points from recorder",
+                count_30d,
+                count_7d,
+            )
+            self.hass.async_create_task(self._async_save_history())
 
     # ── Main update ───────────────────────────────────────────────────────────
 
@@ -149,8 +237,6 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         fossil_state = self.hass.states.get(fossil_entity)
         charger_state = self.hass.states.get(charger_entity)
 
-        _UNAVAILABLE = {"unavailable", "unknown", "none", ""}
-
         co2: float | None = None
         fossil_pct: float | None = None
         carbon_data_unavailable = True
@@ -163,14 +249,14 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             charger_entity, charger_state.state if charger_state else "MISSING",
         )
 
-        if co2_state and co2_state.state not in _UNAVAILABLE:
+        if co2_state and co2_state.state not in _UNAVAILABLE_STATES:
             try:
                 co2 = float(co2_state.state)
                 carbon_data_unavailable = False
             except ValueError:
                 pass
 
-        if fossil_state and fossil_state.state not in _UNAVAILABLE:
+        if fossil_state and fossil_state.state not in _UNAVAILABLE_STATES:
             try:
                 fossil_pct = float(fossil_state.state)
             except ValueError:
@@ -189,7 +275,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         charge_rate_kw: float | None = None
         if power_entity:
             ps = self.hass.states.get(power_entity)
-            if ps and ps.state not in _UNAVAILABLE:
+            if ps and ps.state not in _UNAVAILABLE_STATES:
                 try:
                     charge_rate_kw = round(float(ps.state) / 1000, 2)
                 except ValueError:
@@ -283,6 +369,30 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
 
         should_charge = predicted_state in CHARGEABLE_STATES and is_connected
 
+        # ── Human-readable status reason ─────────────────────────────────────
+        _DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        if not is_connected:
+            status_reason = "Not connected"
+        elif charge_mode == CHARGE_MODE_FORCE_OFF:
+            status_reason = "Paused — forced off"
+        elif charge_mode == CHARGE_MODE_FORCE_ON:
+            status_reason = "Charging — forced on"
+        elif carbon_good:
+            status_reason = f"Charging — grid is clean ({z_score}σ)"
+        elif carbon_data_unavailable and departure_prep:
+            day_name = _DAY_NAMES[weekday]
+            status_reason = (
+                f"Charging — departure prep {day_name} {departure_hour:02d}:00"
+            )
+        elif carbon_data_unavailable and fallback_window:
+            status_reason = "Charging — fallback window"
+        elif carbon_data_unavailable:
+            status_reason = "Paused — waiting for data"
+        elif fossil_pct is not None and fossil_pct >= FOSSIL_HARD_FLOOR:
+            status_reason = f"Paused — fossil fuel too high ({round(fossil_pct)}%)"
+        else:
+            status_reason = f"Paused — grid too dirty ({z_score}σ)"
+
         # ── Min dwell (prevents turn-off within 15 min of turn-on) ───────────
         min_dwell_met = True
         if charger_is_on and not should_charge and charger_state is not None:
@@ -369,6 +479,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             carbon_data_unavailable=carbon_data_unavailable,
             predicted_state=predicted_state,
             should_charge=should_charge,
+            status_reason=status_reason,
             charge_rate_kw=charge_rate_kw,
             charge_current_a=charge_current_a,
         )
