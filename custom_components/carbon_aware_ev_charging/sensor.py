@@ -6,12 +6,11 @@ from typing import Any
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .base_entity import EVChargerBaseEntity
 from .const import CONF_CHARGER_POWER_SENSOR, DOMAIN
-from .coordinator import EVCarbonCoordinator, EVCarbonData
+from .coordinator import EVCarbonCoordinator
 
 
 async def async_setup_entry(
@@ -30,28 +29,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class _EvBaseEntity(CoordinatorEntity[EVCarbonCoordinator]):
-    """Shared base: ties entity to the integration device."""
-
-    def __init__(
-        self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
-    ) -> None:
-        super().__init__(coordinator)
-        self._entry = entry
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-            name="Carbon-Aware EV Charging",
-        )
-
-    @property
-    def _data(self) -> EVCarbonData:
-        return self.coordinator.data
-
-
-class EvZScoreSensor(_EvBaseEntity, SensorEntity):
+class EvZScoreSensor(EVChargerBaseEntity, SensorEntity):
     """CO2 intensity Z-score relative to 7-day rolling mean."""
 
     _attr_native_unit_of_measurement = "σ"
@@ -87,7 +65,7 @@ class EvZScoreSensor(_EvBaseEntity, SensorEntity):
         }
 
 
-class EvChargingStatusSensor(_EvBaseEntity, SensorEntity):
+class EvChargingStatusSensor(EVChargerBaseEntity, SensorEntity):
     """Human-readable explanation of what the charger is doing and why."""
 
     _attr_icon = "mdi:message-text"
@@ -120,7 +98,7 @@ class EvChargingStatusSensor(_EvBaseEntity, SensorEntity):
         }
 
 
-class EvChargeRateKwSensor(_EvBaseEntity, SensorEntity):
+class EvChargeRateKwSensor(EVChargerBaseEntity, SensorEntity):
     """Charging power in kW (derived from the optional power sensor)."""
 
     _attr_native_unit_of_measurement = "kW"
@@ -147,7 +125,7 @@ class EvChargeRateKwSensor(_EvBaseEntity, SensorEntity):
         )
 
 
-class EvChargeCurrentSensor(_EvBaseEntity, SensorEntity):
+class EvChargeCurrentSensor(EVChargerBaseEntity, SensorEntity):
     """Charging current in A (from charger switch attribute)."""
 
     _attr_native_unit_of_measurement = "A"

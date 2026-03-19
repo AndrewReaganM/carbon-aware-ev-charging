@@ -1,15 +1,12 @@
 """Number entities for Carbon-Aware EV Charging."""
 from __future__ import annotations
 
-from functools import cached_property
-
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .base_entity import EVChargerBaseEntity
 from .const import (
     CONF_DEPARTURE_HOUR,
     CONF_FALLBACK_WINDOW_1_END,
@@ -64,9 +61,7 @@ async def async_setup_entry(
     ])
 
 
-class EvDepartureHourNumber(
-    CoordinatorEntity[EVCarbonCoordinator], NumberEntity
-):
+class EvDepartureHourNumber(EVChargerBaseEntity, NumberEntity):
     """Hour-of-day at which departure-prep charging activates."""
 
     _attr_native_min_value = 0
@@ -79,38 +74,19 @@ class EvDepartureHourNumber(
     def __init__(
         self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
     ) -> None:
-        super().__init__(coordinator)
+        super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_ev_departure_hour"
         self._attr_name = "EV Departure Hour"
-        self._entry = entry
-
-    @property
-    def available(self) -> bool:  # type: ignore[override]
-        return super().available
-
-    @cached_property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-            name="Carbon-Aware EV Charging",
-        )
 
     @property
     def native_value(self) -> float:  # type: ignore[override]
         return float(self._entry.options.get(CONF_DEPARTURE_HOUR, 5))
 
     async def async_set_native_value(self, value: float) -> None:
-        self.hass.config_entries.async_update_entry(
-            self._entry,
-            options={**self._entry.options, CONF_DEPARTURE_HOUR: int(value)},
-        )
-        self.async_write_ha_state()
-        await self.coordinator.async_request_refresh()
+        await self._async_update_option(CONF_DEPARTURE_HOUR, int(value))
 
 
-class EvFallbackWindowNumber(
-    CoordinatorEntity[EVCarbonCoordinator], NumberEntity
-):
+class EvFallbackWindowNumber(EVChargerBaseEntity, NumberEntity):
     """Configurable hour boundary for a fallback charging window."""
 
     _attr_native_min_value = 0
@@ -129,33 +105,16 @@ class EvFallbackWindowNumber(
         name: str,
         icon: str,
     ) -> None:
-        super().__init__(coordinator)
+        super().__init__(coordinator, entry)
         self._key = key
         self._default = default
         self._attr_unique_id = f"{entry.entry_id}_{key}"
         self._attr_name = name
         self._attr_icon = icon
-        self._entry = entry
-
-    @property
-    def available(self) -> bool:  # type: ignore[override]
-        return super().available
-
-    @cached_property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-            name="Carbon-Aware EV Charging",
-        )
 
     @property
     def native_value(self) -> float:  # type: ignore[override]
         return float(self._entry.options.get(self._key, self._default))
 
     async def async_set_native_value(self, value: float) -> None:
-        self.hass.config_entries.async_update_entry(
-            self._entry,
-            options={**self._entry.options, self._key: int(value)},
-        )
-        self.async_write_ha_state()
-        await self.coordinator.async_request_refresh()
+        await self._async_update_option(self._key, int(value))
