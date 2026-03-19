@@ -341,3 +341,143 @@ async def test_rolling_stats_populated(hass: HomeAssistant) -> None:
     assert data.mean_30d is not None
     assert data.stdev_30d is not None
     assert data.z_score is not None
+
+
+# ── Stale-data detection ──────────────────────────────────────────────────────
+
+
+async def test_fresh_data_not_stale(hass: HomeAssistant) -> None:
+    """Freshly updated sensor states → data_stale=False, carbon_data_unavailable=False."""
+    _set_states(hass, co2="150", fossil="30")
+    data = await _run(_make_coord(hass))
+
+    assert data.data_stale is False
+    assert data.carbon_data_unavailable is False
+
+
+async def test_stale_co2_marks_data_unavailable(hass: HomeAssistant) -> None:
+    """CO2 sensor not updated for >30 min → data_stale=True, carbon_data_unavailable=True."""
+    _set_states(hass, co2="150", fossil="30")
+
+    # Backdate last_updated on both sensors to 40 min ago
+    from homeassistant.util import dt as real_dt
+
+    stale_time = real_dt.utcnow() - timedelta(minutes=40)
+    hass.states.get("sensor.co2").last_updated = stale_time
+    hass.states.get("sensor.fossil").last_updated = stale_time
+
+    data = await _run(_make_coord(hass))
+
+    assert data.data_stale is True
+    assert data.carbon_data_unavailable is True
+
+
+async def test_stale_fossil_marks_data_unavailable(hass: HomeAssistant) -> None:
+    """Fossil sensor stale while CO2 is fresh → data_stale=True."""
+    _set_states(hass, co2="150", fossil="30")
+
+    # Only backdate the fossil sensor
+    from homeassistant.util import dt as real_dt
+
+    stale_time = real_dt.utcnow() - timedelta(minutes=40)
+    hass.states.get("sensor.fossil").last_updated = stale_time
+
+    data = await _run(_make_coord(hass))
+
+    assert data.data_stale is True
+    assert data.carbon_data_unavailable is True
+
+
+async def test_stale_data_triggers_fallback_window(hass: HomeAssistant) -> None:
+    """Stale data during a fallback window → STATE_SCHEDULED (not STATE_CARBON)."""
+    _set_states(hass, co2="150", fossil="30")
+
+    # Backdate sensors to make them stale
+    from homeassistant.util import dt as real_dt
+
+    stale_time = real_dt.utcnow() - timedelta(minutes=40)
+    hass.states.get("sensor.co2").last_updated = stale_time
+    hass.states.get("sensor.fossil").last_updated = stale_time
+
+    coord = _make_coord(hass)
+
+    # Use real utcnow (staleness check works) but fake now() at 23:00 for fallback window
+    real_utcnow = real_dt.utcnow()
+    fake_local = datetime(2026, 3, 16, 23, 0, tzinfo=timezone.utc)
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = real_utcnow
+        mock_dt.now.return_value = fake_local
+        data = await _run(coord)
+
+    assert data.data_stale is True
+    assert data.carbon_data_unavailable is True
+    assert data.predicted_state == STATE_SCHEDULED
+
+
+async def test_stale_data_outside_window_paused(hass: HomeAssistant) -> None:
+    """Stale data outside any fallback window → STATE_PAUSED."""
+    _set_states(hass, co2="150", fossil="30")
+
+    from homeassistant.util import dt as real_dt
+
+    stale_time = real_dt.utcnow() - timedelta(minutes=40)
+    hass.states.get("sensor.co2").last_updated = stale_time
+    hass.states.get("sensor.fossil").last_updated = stale_time
+
+    coord = _make_coord(hass)
+
+    # Real utcnow for staleness, fake local at 09:00 Monday (no window/departure)
+    real_utcnow = real_dt.utcnow()
+    fake_local = datetime(2026, 3, 16, 9, 0, tzinfo=timezone.utc)  # Monday
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = real_utcnow
+        mock_dt.now.return_value = fake_local
+        data = await _run(coord)
+
+    assert data.data_stale is True
+    assert data.predicted_state == STATE_PAUSED
+
+
+async def test_stale_status_reason(hass: HomeAssistant) -> None:
+    """Stale data produces a specific status_reason mentioning staleness."""
+    _set_states(hass, co2="150", fossil="30")
+
+    from homeassistant.util import dt as real_dt
+
+    stale_time = real_dt.utcnow() - timedelta(minutes=40)
+    hass.states.get("sensor.co2").last_updated = stale_time
+    hass.states.get("sensor.fossil").last_updated = stale_time
+
+    coord = _make_coord(hass)
+
+    # Real utcnow for staleness, fake local at 09:00 (no window → paused with stale reason)
+    real_utcnow = real_dt.utcnow()
+    fake_local = datetime(2026, 3, 16, 9, 0, tzinfo=timezone.utc)
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = real_utcnow
+        mock_dt.now.return_value = fake_local
+        data = await _run(coord)
+
+    assert "stale" in data.status_reason.lower()
+
+
+async def test_unavailable_sensor_not_checked_for_staleness(hass: HomeAssistant) -> None:
+    """Sensors in 'unavailable' state are not flagged as stale (they're already handled)."""
+    hass.states.async_set("sensor.co2", "unavailable")
+    hass.states.async_set("sensor.fossil", "unavailable")
+    hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
+
+    coord = _make_coord(hass)
+
+    # Even 40 min in the future, unavailable sensors should not trigger data_stale
+    from homeassistant.util import dt as real_dt
+
+    fake_now = real_dt.utcnow() + timedelta(minutes=40)
+    fake_local = real_dt.now() + timedelta(minutes=40)
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = fake_now
+        mock_dt.now.return_value = fake_local
+        data = await _run(coord)
+
+    assert data.data_stale is False  # not stale — just unavailable
+    assert data.carbon_data_unavailable is True  # still unavailable though

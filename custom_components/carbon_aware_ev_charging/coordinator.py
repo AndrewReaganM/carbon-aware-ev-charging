@@ -41,6 +41,7 @@ from .const import (
     HYSTERESIS_SIGMA,
     LED_COLOUR,
     MIN_DWELL_MINUTES,
+    STALE_DATA_MINUTES,
     STATE_CARBON,
     STATE_OVERRIDE,
     STATE_PAUSED,
@@ -75,6 +76,7 @@ class EVCarbonData:
     is_connected: bool = False
     carbon_good: bool = False
     carbon_data_unavailable: bool = True
+    data_stale: bool = False
     predicted_state: str = STATE_PAUSED
     should_charge: bool = False
     status_reason: str = "Unknown"
@@ -265,6 +267,24 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         if co2 is None or fossil_pct is None:
             carbon_data_unavailable = True
 
+        # ── Staleness check ───────────────────────────────────────────────
+        data_stale = False
+        stale_threshold = dt_util.utcnow() - timedelta(minutes=STALE_DATA_MINUTES)
+        for _entity, _state in (
+            (co2_entity, co2_state),
+            (fossil_entity, fossil_state),
+        ):
+            if _state is not None and _state.state not in _UNAVAILABLE_STATES:
+                if _state.last_updated < stale_threshold:
+                    _LOGGER.warning(
+                        "[EV] Sensor %s is stale (last_updated=%s, threshold=%s)",
+                        _entity,
+                        _state.last_updated.isoformat(),
+                        stale_threshold.isoformat(),
+                    )
+                    data_stale = True
+                    carbon_data_unavailable = True
+
         is_connected = False
         if charger_state:
             is_connected = (
@@ -342,7 +362,8 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             threshold + HYSTERESIS_SIGMA if charger_is_on else threshold
         )
         carbon_good = (
-            z_score is not None
+            not carbon_data_unavailable
+            and z_score is not None
             and fossil_pct is not None
             and z_score < effective_threshold
             and fossil_pct < FOSSIL_HARD_FLOOR
@@ -386,6 +407,8 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             )
         elif carbon_data_unavailable and fallback_window:
             status_reason = "Charging — fallback window"
+        elif carbon_data_unavailable and data_stale:
+            status_reason = "Paused — sensor data is stale"
         elif carbon_data_unavailable:
             status_reason = "Paused — waiting for data"
         elif fossil_pct is not None and fossil_pct >= FOSSIL_HARD_FLOOR:
@@ -477,6 +500,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             is_connected=is_connected,
             carbon_good=carbon_good,
             carbon_data_unavailable=carbon_data_unavailable,
+            data_stale=data_stale,
             predicted_state=predicted_state,
             should_charge=should_charge,
             status_reason=status_reason,

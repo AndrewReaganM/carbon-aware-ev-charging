@@ -51,6 +51,9 @@ DEQUE_30D = 30 * READINGS_PER_DAY  # 8 640
 # Minimum charger dwell time before turning off (minutes)
 MIN_DWELL_MINUTES = 15
 
+# Sensor staleness threshold — treat data as unavailable after this many minutes
+STALE_DATA_MINUTES = 30
+
 # ── Charge modes ──────────────────────────────────────────────────────────────
 CHARGE_MODE_AUTO = "auto"
 CHARGE_MODE_FORCE_ON = "force_on"

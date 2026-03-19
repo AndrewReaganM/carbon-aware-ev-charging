@@ -117,6 +117,7 @@ class EvLowCarbonNowSensor(_EvBaseEntity, SensorEntity):
             "predicted_state": self._data.predicted_state,
             "should_charge": self._data.should_charge,
             "carbon_data_unavailable": self._data.carbon_data_unavailable,
+            "data_stale": self._data.data_stale,
             "fossil_pct": self._data.fossil_pct,
         }
 
