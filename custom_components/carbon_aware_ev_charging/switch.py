@@ -82,6 +82,7 @@ class EvFallbackWindowSwitch(
             self._entry,
             options={**self._entry.options, self._key: True},
         )
+        self.async_write_ha_state()
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -89,4 +90,5 @@ class EvFallbackWindowSwitch(
             self._entry,
             options={**self._entry.options, self._key: False},
         )
+        self.async_write_ha_state()
         await self.coordinator.async_request_refresh()
