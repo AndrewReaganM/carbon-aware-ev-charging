@@ -10,6 +10,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.exceptions import ServiceNotFound
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -672,6 +673,24 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         stats: _Statistics,
     ) -> None:
         """Control charger switch, LED indicator, and send notifications."""
+        try:
+            await self._async_control_devices_inner(cfg, sensors, decision, stats)
+        except ServiceNotFound as exc:
+            # On first boot, platforms like switch/light/select may not be
+            # loaded yet.  Log and let the next poll retry.
+            _LOGGER.debug("[EV] Service not yet available, will retry: %s", exc)
+
+        # Track connection state for reconnect detection (always, even in dry-run)
+        self._was_connected = sensors.is_connected
+
+    async def _async_control_devices_inner(
+        self,
+        cfg: _ResolvedConfig,
+        sensors: _SensorReadings,
+        decision: _ChargingDecision,
+        stats: _Statistics,
+    ) -> None:
+        """Inner device-control logic (may raise ServiceNotFound on boot)."""
         want_on = decision.should_charge
         is_on = sensors.charger_is_on
 
@@ -736,9 +755,6 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
                             f"Grid too dirty for {cfg.carbon_mode} mode. "
                             f"Z-score {stats.z_score}σ, {round(sensors.fossil_pct or 0)}% fossil.",
                         )
-
-        # Track connection state for reconnect detection (always, even in dry-run)
-        self._was_connected = sensors.is_connected
 
         # ── LED indicator (idempotent — only write on state change) ───────
         # Colour reflects what WOULD happen if the car were plugged in;
