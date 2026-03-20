@@ -86,7 +86,9 @@ async def test_setup_entry_with_persisted_history(hass: HomeAssistant) -> None:
     )
     entry.add_to_hass(hass)
 
-    fake_history = [[1_000_000_000 + i * 300, float(200 + i % 10)] for i in range(50)]
+    # Timestamps must be within the last 7 days to survive time-based pruning.
+    now_ts = datetime.now(tz=timezone.utc).timestamp()
+    fake_history = [[now_ts - (50 - i) * 300, float(200 + i % 10)] for i in range(50)]
 
     with patch("custom_components.carbon_aware_ev_charging.coordinator.Store") as MockStore:
         store_inst = MagicMock()

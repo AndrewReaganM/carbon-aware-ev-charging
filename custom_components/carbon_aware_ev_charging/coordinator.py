@@ -570,6 +570,15 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
 
     def _update_statistics(self, co2: float | None) -> _Statistics:
         """Update rolling deques, compute mean/stdev/z-score."""
+        # Time-based prune: discard entries older than the window regardless of count.
+        now_ts = dt_util.utcnow().timestamp()
+        cutoff_7d = now_ts - 7 * 86_400
+        cutoff_30d = now_ts - 30 * 86_400
+        while self._deque_7d and self._deque_7d[0][0] < cutoff_7d:
+            self._deque_7d.popleft()
+        while self._deque_30d and self._deque_30d[0][0] < cutoff_30d:
+            self._deque_30d.popleft()
+
         if co2 is not None:
             ts = dt_util.utcnow().timestamp()
             self._deque_7d.append((ts, co2))

@@ -1055,3 +1055,65 @@ async def test_repair_issues_tracked_per_sensor(hass: HomeAssistant) -> None:
     issue_ids = {c[0][2] for c in mock_create.call_args_list}
     assert "sensor_unavailable_sensor.co2" in issue_ids
     assert "sensor_unavailable_sensor.fossil" in issue_ids
+
+
+# ── Deque timestamp pruning ───────────────────────────────────────────────────
+
+
+async def test_old_entries_pruned_from_7d_deque(hass: HomeAssistant) -> None:
+    """Entries older than 7 days are removed from _deque_7d on update."""
+    _set_states(hass, co2="150", fossil="30")
+    coord = _make_coord(hass)
+
+    # Inject entries: 50 within 7d, 50 older than 7d
+    now_ts = datetime.now(tz=timezone.utc).timestamp()
+    old_entries = [(now_ts - 8 * 86_400 + i * 60, 200.0) for i in range(50)]
+    fresh_entries = [(now_ts - 3 * 86_400 + i * 60, 200.0) for i in range(50)]
+    coord._deque_7d.clear()
+    for e in old_entries + fresh_entries:
+        coord._deque_7d.append(e)
+
+    assert len(coord._deque_7d) == 100
+
+    await _run(coord)
+
+    # Old entries pruned; fresh kept + 1 new from the poll
+    assert len(coord._deque_7d) == 51
+
+
+async def test_old_entries_pruned_from_30d_deque(hass: HomeAssistant) -> None:
+    """Entries older than 30 days are removed from _deque_30d on update."""
+    _set_states(hass, co2="150", fossil="30")
+    coord = _make_coord(hass)
+
+    now_ts = datetime.now(tz=timezone.utc).timestamp()
+    old_entries = [(now_ts - 35 * 86_400 + i * 60, 200.0) for i in range(30)]
+    fresh_entries = [(now_ts - 10 * 86_400 + i * 60, 200.0) for i in range(50)]
+    coord._deque_30d.clear()
+    for e in old_entries + fresh_entries:
+        coord._deque_30d.append(e)
+
+    assert len(coord._deque_30d) == 80
+
+    await _run(coord)
+
+    # Old entries pruned; fresh kept + 1 new from the poll
+    assert len(coord._deque_30d) == 51
+
+
+async def test_pruning_preserves_recent_entries(hass: HomeAssistant) -> None:
+    """All entries within the time window survive pruning."""
+    _set_states(hass, co2="150", fossil="30")
+    coord = _make_coord(hass)
+
+    now_ts = datetime.now(tz=timezone.utc).timestamp()
+    # All entries are within 1 day — well inside 7d window
+    recent_entries = [(now_ts - 3600 + i * 60, 180.0 + i) for i in range(40)]
+    coord._deque_7d.clear()
+    for e in recent_entries:
+        coord._deque_7d.append(e)
+
+    await _run(coord)
+
+    # 40 kept + 1 new = 41
+    assert len(coord._deque_7d) == 41
