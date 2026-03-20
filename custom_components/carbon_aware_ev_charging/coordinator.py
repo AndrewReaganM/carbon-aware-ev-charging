@@ -9,7 +9,8 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -200,6 +201,37 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         self._was_connected: bool = False
         self._stale_hard_count: int = 0
         self._last_led_state: tuple[str, bool] | None = None
+        self._unsub_state_listeners: list = []
+
+    @callback
+    def async_subscribe_state_changes(self) -> None:
+        """Subscribe to state changes on monitored entities for reactive refresh."""
+        cfg = self.entry.data
+        entities = [
+            cfg[CONF_CO2_SENSOR],
+            cfg[CONF_FOSSIL_SENSOR],
+            cfg[CONF_CHARGER_SWITCH],
+        ]
+
+        @callback
+        def _on_state_change(event: Event) -> None:
+            """Request a coordinator refresh when a monitored entity changes."""
+            _LOGGER.debug(
+                "[EV] Reactive refresh triggered by %s",
+                event.data.get("entity_id"),
+            )
+            self.async_request_refresh()
+
+        self._unsub_state_listeners.append(
+            async_track_state_change_event(self.hass, entities, _on_state_change)
+        )
+
+    @callback
+    def async_unsubscribe_state_changes(self) -> None:
+        """Remove all state-change listeners."""
+        for unsub in self._unsub_state_listeners:
+            unsub()
+        self._unsub_state_listeners.clear()
 
     async def async_config_entry_first_refresh(self) -> None:
         """Load persisted rolling history before first poll, then refresh."""

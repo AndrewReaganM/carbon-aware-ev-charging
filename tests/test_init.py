@@ -300,3 +300,56 @@ async def test_backfill_handles_recorder_not_running(hass: HomeAssistant) -> Non
     assert result is True
 
     await hass.config_entries.async_unload(entry.entry_id)
+
+
+# ── Reactive state-change refresh ─────────────────────────────────────────────
+
+
+async def test_state_change_triggers_refresh(hass: HomeAssistant) -> None:
+    """Changing a monitored sensor triggers an immediate coordinator refresh."""
+    hass.states.async_set("sensor.co2", "200")
+    hass.states.async_set("sensor.fossil", "40")
+    hass.states.async_set("switch.charger", "off", {"icon_name": "CarNotConnected"})
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=_VALID_DATA,
+        options=_VALID_OPTIONS,
+    )
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.Store") as MockStore:
+        store_inst = MagicMock()
+        store_inst.async_load = AsyncMock(return_value=None)
+        store_inst.async_save = AsyncMock()
+        MockStore.return_value = store_inst
+
+        await hass.config_entries.async_setup(entry.entry_id)
+
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+
+    # Record how many updates have happened so far
+    initial_count = coordinator.data is not None  # True after first refresh
+
+    with patch.object(coordinator, "async_request_refresh") as mock_refresh:
+        # Change CO2 sensor state
+        hass.states.async_set("sensor.co2", "180")
+        await hass.async_block_till_done()
+
+        assert mock_refresh.call_count >= 1
+
+    # Also verify charger state changes trigger a refresh
+    with patch.object(coordinator, "async_request_refresh") as mock_refresh:
+        hass.states.async_set("switch.charger", "on", {"icon_name": "CarConnected"})
+        await hass.async_block_till_done()
+
+        assert mock_refresh.call_count >= 1
+
+    await hass.config_entries.async_unload(entry.entry_id)
+
+    # After unload, state changes should NOT trigger refresh
+    with patch.object(coordinator, "async_request_refresh") as mock_refresh:
+        hass.states.async_set("sensor.co2", "999")
+        await hass.async_block_till_done()
+
+        assert mock_refresh.call_count == 0

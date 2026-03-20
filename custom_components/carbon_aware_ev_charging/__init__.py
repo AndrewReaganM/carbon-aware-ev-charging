@@ -22,6 +22,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = EVCarbonCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
 
+    # React immediately to CO2/fossil/charger state changes instead of
+    # waiting for the next 5-minute poll.
+    coordinator.async_subscribe_state_changes()
+    entry.async_on_unload(coordinator.async_unsubscribe_state_changes)
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
     # Register a logical device so all entities are grouped in the UI.
