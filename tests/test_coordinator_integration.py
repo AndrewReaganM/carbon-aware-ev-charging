@@ -916,3 +916,51 @@ async def test_departure_prep_dirty_grid_still_charges(hass: HomeAssistant) -> N
     assert data.predicted_state == STATE_SCHEDULED
     assert data.status_enum == "departure_prep"
     assert data.should_charge is True
+
+
+async def test_departure_prep_midnight_wraparound(hass: HomeAssistant) -> None:
+    """departure_hour=1 with 3h window → [22, 1) wraps midnight correctly."""
+    hass.states.async_set("sensor.co2", "unavailable")
+    hass.states.async_set("sensor.fossil", "unavailable")
+    hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
+
+    coord = _make_coord(hass, options_overrides={
+        CONF_DEPARTURE_HOUR: 1,
+        CONF_DEPARTURE_DAYS: ["3"],  # Thursday
+        CONF_FALLBACK_WINDOW_1_ENABLED: False,
+        CONF_FALLBACK_WINDOW_2_ENABLED: False,
+    })
+
+    # Thursday 23:00 → inside window [22, 1)
+    fake_now = datetime(2026, 3, 19, 23, 0, tzinfo=timezone.utc)
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = fake_now
+        mock_dt.now.return_value = fake_now
+        data = await _run(coord)
+
+    assert data.predicted_state == STATE_SCHEDULED
+    assert data.status_enum == "departure_prep"
+
+    # Thursday 00:00 → also inside window [22, 1)
+    fake_now = datetime(2026, 3, 20, 0, 0, tzinfo=timezone.utc)  # Fri but still Thu night
+    coord2 = _make_coord(hass, options_overrides={
+        CONF_DEPARTURE_HOUR: 1,
+        CONF_DEPARTURE_DAYS: ["3", "4"],  # Thu + Fri (Fri 00:00 = weekday 4)
+        CONF_FALLBACK_WINDOW_1_ENABLED: False,
+        CONF_FALLBACK_WINDOW_2_ENABLED: False,
+    })
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = fake_now
+        mock_dt.now.return_value = fake_now
+        data = await _run(coord2)
+
+    assert data.predicted_state == STATE_SCHEDULED
+
+    # Thursday 01:00 → at departure hour, OUTSIDE window [22, 1)
+    fake_now = datetime(2026, 3, 19, 1, 0, tzinfo=timezone.utc)
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = fake_now
+        mock_dt.now.return_value = fake_now
+        data = await _run(coord)
+
+    assert data.predicted_state == STATE_PAUSED

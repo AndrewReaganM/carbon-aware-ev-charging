@@ -748,12 +748,11 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
                         {"entity_id": cfg.charger_entity},
                         blocking=False,
                     )
-                    if cfg.notify_service:
+                    if cfg.notify_service and sensors.is_connected:
                         await self._async_notify(
                             cfg.notify_service,
                             "⏸ EV Charging Paused",
-                            f"Grid too dirty for {cfg.carbon_mode} mode. "
-                            f"Z-score {stats.z_score}σ, {round(sensors.fossil_pct or 0)}% fossil.",
+                            decision.status_reason,
                         )
 
         # ── LED indicator (idempotent — only write on state change) ───────

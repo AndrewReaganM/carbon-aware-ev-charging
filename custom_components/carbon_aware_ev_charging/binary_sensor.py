@@ -1,7 +1,6 @@
 """Binary sensor entities for Carbon-Aware EV Charging."""
 from __future__ import annotations
 
-from functools import cached_property
 from typing import Any
 
 from homeassistant.components.binary_sensor import (
@@ -43,10 +42,6 @@ class EvConnectedBinarySensor(EVChargerBaseEntity, BinarySensorEntity):
         self._attr_name = "EV Connected"
 
     @property
-    def available(self) -> bool:  # type: ignore[override]
-        return super().available
-
-    @cached_property
     def is_on(self) -> bool:
         if not self.coordinator.last_update_success:
             return False
@@ -78,6 +73,8 @@ class EvLowCarbonNowBinarySensor(EVChargerBaseEntity, BinarySensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
+        if not self.coordinator.last_update_success:
+            return {}
         return {
             "predicted_state": self._data.predicted_state,
             "should_charge": self._data.should_charge,

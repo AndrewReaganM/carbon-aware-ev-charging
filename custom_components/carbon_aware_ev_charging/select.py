@@ -49,10 +49,6 @@ class EvChargeModeSelect(EVChargerBaseEntity, SelectEntity):
     def current_option(self) -> str:  # type: ignore[override]
         return self._entry.options.get(CONF_CHARGE_MODE, PREFERENCE_DEFAULTS[CONF_CHARGE_MODE])
 
-    @property
-    def available(self) -> bool:  # type: ignore[override]
-        return super().available
-
     async def async_select_option(self, option: str) -> None:
         await self._async_update_option(CONF_CHARGE_MODE, option)
 
@@ -73,10 +69,6 @@ class EvCarbonModeSelect(EVChargerBaseEntity, SelectEntity):
     @property
     def current_option(self) -> str:  # type: ignore[override]
         return self._entry.options.get(CONF_CARBON_MODE, PREFERENCE_DEFAULTS[CONF_CARBON_MODE])
-
-    @property
-    def available(self) -> bool:  # type: ignore[override]
-        return super().available
 
     async def async_select_option(self, option: str) -> None:
         await self._async_update_option(CONF_CARBON_MODE, option)
