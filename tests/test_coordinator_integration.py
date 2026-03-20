@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceNotFound
 
 from custom_components.carbon_aware_ev_charging.const import (
     CHARGE_MODE_AUTO,
@@ -306,6 +307,43 @@ async def test_notification_sent_on_charge_start(hass: HomeAssistant) -> None:
     notify_calls = [c for c in svc.call_args_list if c.args[:2] == ("notify", "test_svc")]
     assert len(notify_calls) == 1
     assert "Low-Carbon" in notify_calls[0].args[2]["title"]
+
+
+async def test_notify_failure_does_not_block_led(hass: HomeAssistant) -> None:
+    """A failing notification must not prevent LED updates from running."""
+    _set_states(hass, co2="150", fossil="20")
+    hass.states.async_set("light.led", "off")
+    hass.states.async_set("select.led_effect", "Middle Rising")
+
+    from homeassistant.util import dt as real_dt
+
+    hass.states.get("switch.charger").last_changed = real_dt.utcnow() - timedelta(minutes=15)
+
+    coord = _make_coord(
+        hass,
+        options_overrides={CONF_DRY_RUN: False, CONF_NOTIFY_SERVICE: "notify.broken"},
+        data_overrides={CONF_LED_LIGHT: "light.led", CONF_LED_EFFECT_SELECT: "select.led_effect"},
+    )
+
+    svc = _mock_services(coord, hass)
+
+    # Make only the notify call raise; charger + LED calls succeed.
+    async def _selective_failure(*args, **kwargs):
+        if args[0] == "notify":
+            raise ServiceNotFound("notify", "broken")
+        return None
+
+    svc.side_effect = _selective_failure
+
+    await _run(coord)
+
+    # Charger was turned on despite the notify failure
+    charger_calls = [c for c in svc.call_args_list if c.args[:2] == ("switch", "turn_on")]
+    assert len(charger_calls) == 1
+
+    # LED was still updated despite the notify failure
+    light_calls = [c for c in svc.call_args_list if c.args[0] == "light"]
+    assert len(light_calls) == 1
 
 
 async def test_led_called_with_correct_colour(hass: HomeAssistant) -> None:

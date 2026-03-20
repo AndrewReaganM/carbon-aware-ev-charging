@@ -774,12 +774,17 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
                         blocking=False,
                     )
                     if cfg.notify_service:
-                        await self._async_notify(
-                            cfg.notify_service,
-                            "🌿 EV Low-Carbon Charging Started",
-                            f"{decision.predicted_state.title()} mode — Z-score {stats.z_score}σ, "
-                            f"{round(sensors.fossil_pct or 0)}% fossil",
-                        )
+                        try:
+                            z = stats.z_score
+                            fossil = round(sensors.fossil_pct or 0)
+                            await self._async_notify(
+                                cfg.notify_service,
+                                "🌿 EV Low-Carbon Charging Started",
+                                f"{decision.predicted_state.title()} mode"
+                                f" — Z-score {z}σ, {fossil}% fossil",
+                            )
+                        except Exception:
+                            _LOGGER.exception("[EV] Failed to send charge-start notification")
             elif not want_on and is_on:
                 # Dwell: prevent turn-off within MIN_DWELL_MINUTES of turn-on
                 min_dwell_met = True
@@ -797,11 +802,14 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
                         blocking=False,
                     )
                     if cfg.notify_service and sensors.is_connected:
-                        await self._async_notify(
-                            cfg.notify_service,
-                            "⏸ EV Charging Paused",
-                            decision.status_reason,
-                        )
+                        try:
+                            await self._async_notify(
+                                cfg.notify_service,
+                                "⏸ EV Charging Paused",
+                                decision.status_reason,
+                            )
+                        except Exception:
+                            _LOGGER.exception("[EV] Failed to send charge-paused notification")
 
         # ── LED indicator (idempotent — only write on state change) ───────
         # Colour reflects what WOULD happen if the car were plugged in;
