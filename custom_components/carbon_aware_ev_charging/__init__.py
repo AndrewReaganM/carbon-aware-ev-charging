@@ -17,6 +17,15 @@ _LOGGER = logging.getLogger(__name__)
 _MANIFEST = json.loads((Path(__file__).parent / "manifest.json").read_text())
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate config entries to the current schema version."""
+    if entry.version > 1:
+        _LOGGER.error("Cannot downgrade from config version %s", entry.version)
+        return False
+    # VERSION 1 is the current schema — nothing to migrate.
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Carbon-Aware EV Charging from a config entry."""
     coordinator = EVCarbonCoordinator(hass, entry)

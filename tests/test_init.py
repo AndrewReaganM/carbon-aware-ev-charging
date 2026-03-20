@@ -8,6 +8,7 @@ import pytest
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.carbon_aware_ev_charging import async_migrate_entry
 from custom_components.carbon_aware_ev_charging.const import (
     CONF_CARBON_MODE,
     CONF_CHARGE_MODE,
@@ -353,3 +354,22 @@ async def test_state_change_triggers_refresh(hass: HomeAssistant) -> None:
         await hass.async_block_till_done()
 
         assert mock_refresh.call_count == 0
+
+
+# ── Config entry migration ────────────────────────────────────────────────────
+
+
+async def test_migrate_entry_v1(hass: HomeAssistant) -> None:
+    """VERSION 1 entries migrate without changes."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data=_VALID_DATA, options=_VALID_OPTIONS, version=1,
+    )
+    assert await async_migrate_entry(hass, entry) is True
+
+
+async def test_migrate_entry_future_version_fails(hass: HomeAssistant) -> None:
+    """Entries from a higher version cannot be downgraded."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data=_VALID_DATA, options=_VALID_OPTIONS, version=99,
+    )
+    assert await async_migrate_entry(hass, entry) is False
