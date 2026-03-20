@@ -106,5 +106,11 @@
     "error": {
       "invalid_notify_service": "Must be in the form notify.service_name (e.g. notify.mobile_app_my_iphone)."
     }
+  },
+  "issues": {
+    "sensor_unavailable": {
+      "title": "Sensor {entity_id} unavailable",
+      "description": "The sensor `{entity_id}` has been unavailable for more than {minutes} minutes. Carbon-aware charging cannot function without this data. Check that the integration providing this sensor is running correctly."
+    }
   }
 }

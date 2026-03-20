@@ -38,6 +38,8 @@ from custom_components.carbon_aware_ev_charging.const import (
     CONF_LED_LIGHT,
     CONF_NOTIFY_SERVICE,
     DEQUE_7D,
+    DOMAIN,
+    SENSOR_UNAVAILABLE_REPAIR_MINUTES,
     STATE_CARBON,
     STATE_OVERRIDE,
     STATE_PAUSED,
@@ -90,6 +92,8 @@ def _make_coord(
     coord._was_connected = False
     coord._stale_hard_count = 0
     coord._last_led_state = None
+    coord._co2_unavailable_since = None
+    coord._fossil_unavailable_since = None
     coord.last_update_success = True
     return coord
 
@@ -964,3 +968,90 @@ async def test_departure_prep_midnight_wraparound(hass: HomeAssistant) -> None:
         data = await _run(coord)
 
     assert data.predicted_state == STATE_PAUSED
+
+
+# ── Sensor availability repair issues ─────────────────────────────────────────
+
+
+async def test_repair_issue_not_raised_before_threshold(hass: HomeAssistant) -> None:
+    """No repair issue when sensor is unavailable for less than the threshold."""
+    _set_states(hass, co2="unavailable", fossil="30")
+    coord = _make_coord(hass)
+
+    with patch(
+        "custom_components.carbon_aware_ev_charging.coordinator.async_create_issue"
+    ) as mock_create:
+        await _run(coord)
+
+    mock_create.assert_not_called()
+    # tracking started
+    assert coord._co2_unavailable_since is not None
+    assert coord._fossil_unavailable_since is None
+
+
+async def test_repair_issue_raised_after_threshold(hass: HomeAssistant) -> None:
+    """Repair issue created once sensor is unavailable past the threshold."""
+    _set_states(hass, co2="unavailable", fossil="30")
+    coord = _make_coord(hass)
+
+    # Pre-set tracking to just past threshold
+    from homeassistant.util import dt as real_dt
+
+    coord._co2_unavailable_since = real_dt.utcnow() - timedelta(
+        minutes=SENSOR_UNAVAILABLE_REPAIR_MINUTES + 1,
+    )
+
+    with patch(
+        "custom_components.carbon_aware_ev_charging.coordinator.async_create_issue"
+    ) as mock_create:
+        await _run(coord)
+
+    mock_create.assert_called_once()
+    call_kwargs = mock_create.call_args
+    assert call_kwargs[0][1] == DOMAIN
+    assert "sensor.co2" in call_kwargs[0][2]
+
+
+async def test_repair_issue_dismissed_on_recovery(hass: HomeAssistant) -> None:
+    """Repair issue dismissed when sensor recovers from unavailable."""
+    _set_states(hass, co2="150", fossil="30")
+    coord = _make_coord(hass)
+
+    # Simulate that an issue was previously raised
+    from homeassistant.util import dt as real_dt
+
+    coord._co2_unavailable_since = real_dt.utcnow() - timedelta(minutes=60)
+
+    with patch(
+        "custom_components.carbon_aware_ev_charging.coordinator.async_delete_issue"
+    ) as mock_delete:
+        await _run(coord)
+
+    mock_delete.assert_called_once_with(
+        hass, DOMAIN, "sensor_unavailable_sensor.co2"
+    )
+    assert coord._co2_unavailable_since is None
+
+
+async def test_repair_issues_tracked_per_sensor(hass: HomeAssistant) -> None:
+    """CO2 and fossil sensors are tracked independently."""
+    _set_states(hass, co2="unavailable", fossil="unavailable")
+    coord = _make_coord(hass)
+
+    from homeassistant.util import dt as real_dt
+
+    past = real_dt.utcnow() - timedelta(
+        minutes=SENSOR_UNAVAILABLE_REPAIR_MINUTES + 1,
+    )
+    coord._co2_unavailable_since = past
+    coord._fossil_unavailable_since = past
+
+    with patch(
+        "custom_components.carbon_aware_ev_charging.coordinator.async_create_issue"
+    ) as mock_create:
+        await _run(coord)
+
+    assert mock_create.call_count == 2
+    issue_ids = {c[0][2] for c in mock_create.call_args_list}
+    assert "sensor_unavailable_sensor.co2" in issue_ids
+    assert "sensor_unavailable_sensor.fossil" in issue_ids

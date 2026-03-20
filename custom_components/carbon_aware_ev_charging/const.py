@@ -73,6 +73,9 @@ STALE_DATA_MINUTES = 30
 STALE_HARD_MINUTES = 60
 STALE_HARD_CONSECUTIVE = 3  # consecutive polls exceeding STALE_HARD_MINUTES
 
+# Minutes a sensor must stay unavailable before raising an HA Repair issue
+SENSOR_UNAVAILABLE_REPAIR_MINUTES = 30
+
 # Default fallback windows (hours, 0-23)
 DEFAULT_FALLBACK_WINDOW_1_START = 22  # overnight window: 22:00–06:00
 DEFAULT_FALLBACK_WINDOW_1_END = 6

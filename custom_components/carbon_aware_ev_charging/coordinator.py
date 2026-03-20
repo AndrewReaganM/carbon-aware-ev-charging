@@ -12,6 +12,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ServiceNotFound
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.issue_registry import (
+    IssueSeverity,
+    async_create_issue,
+    async_delete_issue,
+)
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -49,6 +54,7 @@ from .const import (
     MIN_COOLDOWN_MINUTES,
     MIN_DWELL_MINUTES,
     PREFERENCE_DEFAULTS,
+    SENSOR_UNAVAILABLE_REPAIR_MINUTES,
     STALE_DATA_MINUTES,
     STALE_HARD_CONSECUTIVE,
     STALE_HARD_MINUTES,
@@ -203,6 +209,8 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         self._stale_hard_count: int = 0
         self._last_led_state: tuple[str, bool] | None = None
         self._unsub_state_listeners: list = []
+        self._co2_unavailable_since: datetime | None = None
+        self._fossil_unavailable_since: datetime | None = None
 
     @callback
     def async_subscribe_state_changes(self) -> None:
@@ -337,6 +345,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         """Fetch state, update stats, compute derived values, control devices."""
         cfg = self._resolve_config()
         sensors = self._read_sensors(cfg)
+        self._check_sensor_availability(cfg, sensors)
         stats = self._update_statistics(sensors.co2)
         decision = self._evaluate_charging(cfg, sensors, stats)
         await self._control_devices(cfg, sensors, decision, stats)
@@ -521,6 +530,43 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             charge_rate_kw=charge_rate_kw,
             charge_current_a=charge_current_a,
         )
+
+    def _check_sensor_availability(
+        self, cfg: _ResolvedConfig, sensors: _SensorReadings,
+    ) -> None:
+        """Raise or dismiss HA Repair issues for prolonged sensor unavailability."""
+        now = dt_util.utcnow()
+        threshold = timedelta(minutes=SENSOR_UNAVAILABLE_REPAIR_MINUTES)
+
+        for entity_id, value, attr in (
+            (cfg.co2_entity, sensors.co2, "_co2_unavailable_since"),
+            (cfg.fossil_entity, sensors.fossil_pct, "_fossil_unavailable_since"),
+        ):
+            issue_id = f"sensor_unavailable_{entity_id}"
+            since: datetime | None = getattr(self, attr)
+
+            if value is None:
+                # Sensor is unavailable — start tracking if not already
+                if since is None:
+                    setattr(self, attr, now)
+                elif now - since >= threshold:
+                    async_create_issue(
+                        self.hass,
+                        DOMAIN,
+                        issue_id,
+                        is_fixable=False,
+                        severity=IssueSeverity.WARNING,
+                        translation_key="sensor_unavailable",
+                        translation_placeholders={
+                            "entity_id": entity_id,
+                            "minutes": str(SENSOR_UNAVAILABLE_REPAIR_MINUTES),
+                        },
+                    )
+            else:
+                # Sensor recovered — clear tracking and dismiss any issue
+                if since is not None:
+                    setattr(self, attr, None)
+                    async_delete_issue(self.hass, DOMAIN, issue_id)
 
     def _update_statistics(self, co2: float | None) -> _Statistics:
         """Update rolling deques, compute mean/stdev/z-score."""
