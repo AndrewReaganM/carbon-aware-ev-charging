@@ -4,15 +4,14 @@ These tests exercise the pure-Python logic paths (Z-score computation,
 predicted_state branching, carbon gate) using a minimal mock of HomeAssistant
 so the tests run without a live HA instance.
 """
+
 from __future__ import annotations
 
-import statistics
 from collections import deque
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-
 from homeassistant.core import HomeAssistant
 
 from custom_components.carbon_aware_ev_charging.const import (
@@ -33,12 +32,12 @@ from custom_components.carbon_aware_ev_charging.const import (
     STATE_CARBON,
     STATE_OVERRIDE,
     STATE_PAUSED,
-    STATE_SCHEDULED
+    STATE_SCHEDULED,
 )
 from custom_components.carbon_aware_ev_charging.coordinator import EVCarbonCoordinator
 
-
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
 
 def _make_coordinator(
     hass: HomeAssistant,
@@ -92,6 +91,7 @@ def _set_state(
 
 # ── Z-score math ───────────────────────────────────────────────────────────────
 
+
 class TestZScoreMath:
     """Test Z-score computation in isolation (no HA required)."""
 
@@ -105,7 +105,9 @@ class TestZScoreMath:
         z = round((co2 - mean) / stdev, 2)
         assert z == pytest.approx(-1.25)
 
+
 # ── Carbon gate ────────────────────────────────────────────────────────────────
+
 
 class TestCarbonGate:
     """Test the low_carbon_now gate logic."""
@@ -146,6 +148,7 @@ class TestCarbonGate:
 
 # ── predicted_state branches ───────────────────────────────────────────────────
 
+
 class TestPredictedState:
     """Test the priority logic for predicted_state."""
 
@@ -179,9 +182,7 @@ class TestPredictedState:
         return STATE_PAUSED
 
     def test_force_off_beats_everything(self):
-        assert self._predict(
-            charge_mode=CHARGE_MODE_FORCE_OFF, carbon_good=True
-        ) == STATE_PAUSED
+        assert self._predict(charge_mode=CHARGE_MODE_FORCE_OFF, carbon_good=True) == STATE_PAUSED
 
     def test_force_on_beats_carbon(self):
         # force_on overrides, but carbon_good doesn't matter for the winner label
@@ -191,27 +192,33 @@ class TestPredictedState:
         assert self._predict(carbon_good=True) == STATE_CARBON
 
     def test_scheduled_fallback_when_data_unavailable(self):
-        assert (
-            self._predict(
-                carbon_data_unavailable=True, fallback_window=True
-            )
-            == STATE_SCHEDULED
-        )
+        assert self._predict(carbon_data_unavailable=True, fallback_window=True) == STATE_SCHEDULED
 
     def test_paused_when_data_available_and_not_clean(self):
         assert self._predict(carbon_good=False, carbon_data_unavailable=False) == STATE_PAUSED
 
     def test_paused_when_data_unavailable_but_no_window(self):
-        assert self._predict(carbon_data_unavailable=True, fallback_window=False, departure_prep=False) == STATE_PAUSED
+        result = self._predict(
+            carbon_data_unavailable=True,
+            fallback_window=False,
+            departure_prep=False,
+        )
+        assert result == STATE_PAUSED
 
     def test_departure_prep_beats_dirty_grid(self):
         """Departure prep fires even when data is available (grid dirty)."""
-        assert self._predict(
-            carbon_good=False, carbon_data_unavailable=False, departure_prep=True,
-        ) == STATE_SCHEDULED
+        assert (
+            self._predict(
+                carbon_good=False,
+                carbon_data_unavailable=False,
+                departure_prep=True,
+            )
+            == STATE_SCHEDULED
+        )
 
 
 # ── Reload spike guard (integration-level) ────────────────────────────────────
+
 
 class TestReloadSpikeGuard:
     """Verify that a spike-guard failure falls back to last good Z-score."""
@@ -219,8 +226,6 @@ class TestReloadSpikeGuard:
     def test_z_score_none_during_warmup(self):
         """Before any history is accumulated, z_score should be None."""
         last_z = None  # no previous value
-        stdev = 0.0
-        mean = 0.0
         z_score = None
         # If last_z is None and guard fails, z_score stays None
         result = last_z if z_score is None else z_score
@@ -229,11 +234,13 @@ class TestReloadSpikeGuard:
 
 # ── _in_hour_window helper ────────────────────────────────────────────────────
 
+
 class TestInHourWindow:
     """Unit tests for the _in_hour_window helper."""
 
     def test_normal_window(self):
         from custom_components.carbon_aware_ev_charging.coordinator import _in_hour_window
+
         assert _in_hour_window(12, 11, 15) is True
         assert _in_hour_window(11, 11, 15) is True
         assert _in_hour_window(14, 11, 15) is True
@@ -242,6 +249,7 @@ class TestInHourWindow:
 
     def test_midnight_wrap(self):
         from custom_components.carbon_aware_ev_charging.coordinator import _in_hour_window
+
         # 22:00–06:00
         assert _in_hour_window(23, 22, 6) is True
         assert _in_hour_window(0, 22, 6) is True
@@ -251,5 +259,6 @@ class TestInHourWindow:
 
     def test_disabled_when_start_equals_end(self):
         from custom_components.carbon_aware_ev_charging.coordinator import _in_hour_window
+
         assert _in_hour_window(12, 12, 12) is False
         assert _in_hour_window(0, 0, 0) is False

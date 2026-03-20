@@ -3,9 +3,10 @@
 Entities are instantiated with mock coordinators so these tests run without a
 full HA instance. They focus on property correctness and state-mutation methods.
 """
+
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -24,6 +25,7 @@ from custom_components.carbon_aware_ev_charging.const import (
     CONF_CARBON_MODE,
     CONF_CHARGE_MODE,
     CONF_DEPARTURE_HOUR,
+    CONF_DRY_RUN,
     STATE_CARBON,
     STATE_PAUSED,
 )
@@ -36,7 +38,7 @@ from custom_components.carbon_aware_ev_charging.sensor import (
     EvChargingStatusSensor,
     EvZScoreSensor,
 )
-
+from custom_components.carbon_aware_ev_charging.switch import EvOptionSwitch
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -225,11 +227,13 @@ def test_charging_status_not_connected() -> None:
 
 def test_charging_status_carbon_good() -> None:
     data = EVCarbonData(
-        is_connected=True, carbon_good=True,
+        is_connected=True,
+        carbon_good=True,
         predicted_state=STATE_CARBON,
         status_enum="low_carbon",
         status_reason="Charging — grid is clean (-0.5σ)",
-        z_score=-0.5, fossil_pct=30.0,
+        z_score=-0.5,
+        fossil_pct=30.0,
     )
     sensor = EvChargingStatusSensor(_coord(data), _entry())
     assert sensor.native_value == "low_carbon"
@@ -237,7 +241,8 @@ def test_charging_status_carbon_good() -> None:
 
 def test_charging_status_forced_on() -> None:
     data = EVCarbonData(
-        is_connected=True, predicted_state="override",
+        is_connected=True,
+        predicted_state="override",
         status_enum="override",
         status_reason="Charging — forced on",
     )
@@ -247,7 +252,8 @@ def test_charging_status_forced_on() -> None:
 
 def test_charging_status_forced_off() -> None:
     data = EVCarbonData(
-        is_connected=True, predicted_state=STATE_PAUSED,
+        is_connected=True,
+        predicted_state=STATE_PAUSED,
         status_enum="forced_off",
         status_reason="Paused — forced off",
     )
@@ -257,10 +263,12 @@ def test_charging_status_forced_off() -> None:
 
 def test_charging_status_grid_dirty() -> None:
     data = EVCarbonData(
-        is_connected=True, predicted_state=STATE_PAUSED,
+        is_connected=True,
+        predicted_state=STATE_PAUSED,
         status_enum="grid_dirty",
         status_reason="Paused — grid too dirty (1.2σ)",
-        z_score=1.2, fossil_pct=40.0,
+        z_score=1.2,
+        fossil_pct=40.0,
     )
     sensor = EvChargingStatusSensor(_coord(data), _entry())
     assert sensor.native_value == "grid_dirty"
@@ -268,10 +276,12 @@ def test_charging_status_grid_dirty() -> None:
 
 def test_charging_status_fossil_high() -> None:
     data = EVCarbonData(
-        is_connected=True, predicted_state=STATE_PAUSED,
+        is_connected=True,
+        predicted_state=STATE_PAUSED,
         status_enum="fossil_high",
         status_reason="Paused — fossil fuel too high (80%)",
-        z_score=-0.3, fossil_pct=80.0,
+        z_score=-0.3,
+        fossil_pct=80.0,
     )
     sensor = EvChargingStatusSensor(_coord(data), _entry())
     assert sensor.native_value == "fossil_high"
@@ -279,7 +289,8 @@ def test_charging_status_fossil_high() -> None:
 
 def test_charging_status_departure_prep() -> None:
     data = EVCarbonData(
-        is_connected=True, predicted_state="scheduled",
+        is_connected=True,
+        predicted_state="scheduled",
         status_enum="departure_prep",
         status_reason="Charging — departure prep Wed 07:00",
     )
@@ -289,7 +300,8 @@ def test_charging_status_departure_prep() -> None:
 
 def test_charging_status_fallback() -> None:
     data = EVCarbonData(
-        is_connected=True, predicted_state="scheduled",
+        is_connected=True,
+        predicted_state="scheduled",
         status_enum="fallback",
         status_reason="Charging — fallback window",
     )
@@ -299,7 +311,8 @@ def test_charging_status_fallback() -> None:
 
 def test_charging_status_waiting_for_data() -> None:
     data = EVCarbonData(
-        is_connected=True, carbon_data_unavailable=True,
+        is_connected=True,
+        carbon_data_unavailable=True,
         status_enum="waiting_for_data",
         status_reason="Paused — waiting for data",
     )
@@ -316,8 +329,11 @@ def test_charging_status_unavailable_on_coord_failure() -> None:
 
 def test_charging_status_extra_attrs() -> None:
     data = EVCarbonData(
-        predicted_state=STATE_CARBON, should_charge=True,
-        is_connected=True, z_score=-0.5, fossil_pct=30.0,
+        predicted_state=STATE_CARBON,
+        should_charge=True,
+        is_connected=True,
+        z_score=-0.5,
+        fossil_pct=30.0,
         status_enum="low_carbon",
         status_reason="Charging — grid is clean (-0.5σ)",
     )
@@ -430,9 +446,6 @@ async def test_departure_hour_set_value() -> None:
 
 # ── EvOptionSwitch (dry-run) ───────────────────────────────────────────────────
 
-from custom_components.carbon_aware_ev_charging.const import CONF_DRY_RUN
-from custom_components.carbon_aware_ev_charging.switch import EvOptionSwitch
-
 
 def test_dry_run_switch_default_off() -> None:
     """Default preference is False → switch is off."""
@@ -445,8 +458,11 @@ def test_dry_run_switch_default_off() -> None:
 def test_dry_run_switch_on_from_options() -> None:
     """When options has dry_run=True → switch is on."""
     switch = EvOptionSwitch(
-        _coord(EVCarbonData()), _entry({CONF_DRY_RUN: True}),
-        key=CONF_DRY_RUN, name="EV Dry Run", icon="mdi:test-tube",
+        _coord(EVCarbonData()),
+        _entry({CONF_DRY_RUN: True}),
+        key=CONF_DRY_RUN,
+        name="EV Dry Run",
+        icon="mdi:test-tube",
     )
     assert switch.is_on is True
 

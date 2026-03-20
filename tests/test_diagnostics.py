@@ -1,10 +1,10 @@
 """Tests for the diagnostics handler."""
+
 from __future__ import annotations
 
 from collections import deque
 from unittest.mock import MagicMock
 
-import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.carbon_aware_ev_charging.const import DOMAIN

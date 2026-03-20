@@ -1,4 +1,5 @@
 """Select entities for Carbon-Aware EV Charging."""
+
 from __future__ import annotations
 
 from homeassistant.components.select import SelectEntity
@@ -40,9 +41,7 @@ class EvChargeModeSelect(EVChargerBaseEntity, SelectEntity):
     _attr_options = CHARGE_MODES
     _attr_icon = "mdi:ev-station"
 
-    def __init__(
-        self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
-    ) -> None:
+    def __init__(self, coordinator: EVCarbonCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_CHARGE_MODE}"
         self._attr_name = "EV Charge Mode"
@@ -61,9 +60,7 @@ class EvCarbonModeSelect(EVChargerBaseEntity, SelectEntity):
     _attr_options = CARBON_MODES
     _attr_icon = "mdi:leaf-circle"
 
-    def __init__(
-        self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
-    ) -> None:
+    def __init__(self, coordinator: EVCarbonCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_CARBON_MODE}"
         self._attr_name = "EV Carbon Sensitivity"

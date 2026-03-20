@@ -1,4 +1,5 @@
 """Binary sensor entities for Carbon-Aware EV Charging."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -22,10 +23,12 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: EVCarbonCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([
-        EvConnectedBinarySensor(coordinator, entry),
-        EvLowCarbonNowBinarySensor(coordinator, entry),
-    ])
+    async_add_entities(
+        [
+            EvConnectedBinarySensor(coordinator, entry),
+            EvLowCarbonNowBinarySensor(coordinator, entry),
+        ]
+    )
 
 
 class EvConnectedBinarySensor(EVChargerBaseEntity, BinarySensorEntity):
@@ -34,9 +37,7 @@ class EvConnectedBinarySensor(EVChargerBaseEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.PLUG
     _attr_icon = "mdi:car-electric"
 
-    def __init__(
-        self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
-    ) -> None:
+    def __init__(self, coordinator: EVCarbonCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_CONNECTED}"
         self._attr_name = "EV Connected"
@@ -53,9 +54,7 @@ class EvLowCarbonNowBinarySensor(EVChargerBaseEntity, BinarySensorEntity):
 
     _attr_icon = "mdi:leaf"
 
-    def __init__(
-        self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
-    ) -> None:
+    def __init__(self, coordinator: EVCarbonCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_LOW_CARBON_NOW}"
         self._attr_name = "EV Low Carbon Now"

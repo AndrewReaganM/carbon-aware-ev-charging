@@ -22,4 +22,47 @@ dev = [
     "pytest>=8.3.3",
     "pytest-asyncio>=0.24.0",
     "pytest-homeassistant-custom-component>=0.13.195",
+    "ruff>=0.15.7",
 ]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "F",      # pyflakes
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "I",      # isort
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "SIM",    # flake8-simplify
+    "TID",    # flake8-tidy-imports
+    "RUF",    # ruff-specific rules
+    "S",      # flake8-bandit (security)
+    "A",      # flake8-builtins
+    "T20",    # flake8-print
+    "LOG",    # flake8-logging
+    "G",      # flake8-logging-format
+    "PT",     # flake8-pytest-style
+    "ASYNC",  # flake8-async
+]
+ignore = [
+    "S101",   # assert used in tests (pytest)
+    "S311",   # random not used for crypto
+    "RUF001", # ambiguous unicode in strings (CO₂ subscript etc.)
+    "RUF002", # ambiguous unicode in docstrings
+    "RUF003", # ambiguous unicode in comments (σ, en-dashes)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "PT004", "PT011"]
+"main.py" = ["T201", "S113", "S110"]  # CLI utility: print / input / requests
+
+[tool.ruff.lint.isort]
+known-first-party = ["custom_components.carbon_aware_ev_charging"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

@@ -1,7 +1,8 @@
 """Tests for Carbon-Aware EV Charging integration setup/unload lifecycle (__init__.py)."""
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -87,7 +88,7 @@ async def test_setup_entry_with_persisted_history(hass: HomeAssistant) -> None:
     entry.add_to_hass(hass)
 
     # Timestamps must be within the last 7 days to survive time-based pruning.
-    now_ts = datetime.now(tz=timezone.utc).timestamp()
+    now_ts = datetime.now(tz=UTC).timestamp()
     fake_history = [[now_ts - (50 - i) * 300, float(200 + i % 10)] for i in range(50)]
 
     with patch("custom_components.carbon_aware_ev_charging.coordinator.Store") as MockStore:
@@ -141,12 +142,9 @@ async def test_backfill_populates_empty_deques(hass: HomeAssistant) -> None:
     )
     entry.add_to_hass(hass)
 
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     # 20 states spread over the last 3 days (all within 7d window)
-    fake_states = [
-        _make_fake_state(str(180 + i), now - timedelta(hours=i * 3))
-        for i in range(20)
-    ]
+    fake_states = [_make_fake_state(str(180 + i), now - timedelta(hours=i * 3)) for i in range(20)]
 
     async def fake_backfill(self_coord):
         """Simulate a successful recorder backfill."""
@@ -159,8 +157,9 @@ async def test_backfill_populates_empty_deques(hass: HomeAssistant) -> None:
             type(hass.data.get(DOMAIN, {}).get(entry.entry_id, object())),
             "_async_backfill_from_recorder",
             new=fake_backfill,
-        ) if False else
-        patch(
+        )
+        if False
+        else patch(
             "custom_components.carbon_aware_ev_charging.coordinator.EVCarbonCoordinator._async_backfill_from_recorder",
             new=fake_backfill,
         ),
@@ -196,7 +195,7 @@ async def test_backfill_skips_unavailable_states(hass: HomeAssistant) -> None:
     )
     entry.add_to_hass(hass)
 
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     fake_states = [
         _make_fake_state("200", now - timedelta(hours=2)),
         _make_fake_state("unavailable", now - timedelta(hours=1)),
@@ -331,8 +330,7 @@ async def test_state_change_triggers_refresh(hass: HomeAssistant) -> None:
 
     coordinator = hass.data[DOMAIN][entry.entry_id]
 
-    # Record how many updates have happened so far
-    initial_count = coordinator.data is not None  # True after first refresh
+    # Coordinator has data after first refresh
 
     with patch.object(coordinator, "async_request_refresh") as mock_refresh:
         # Change CO2 sensor state
@@ -364,7 +362,10 @@ async def test_state_change_triggers_refresh(hass: HomeAssistant) -> None:
 async def test_migrate_entry_v1(hass: HomeAssistant) -> None:
     """VERSION 1 entries migrate without changes."""
     entry = MockConfigEntry(
-        domain=DOMAIN, data=_VALID_DATA, options=_VALID_OPTIONS, version=1,
+        domain=DOMAIN,
+        data=_VALID_DATA,
+        options=_VALID_OPTIONS,
+        version=1,
     )
     assert await async_migrate_entry(hass, entry) is True
 
@@ -372,6 +373,9 @@ async def test_migrate_entry_v1(hass: HomeAssistant) -> None:
 async def test_migrate_entry_future_version_fails(hass: HomeAssistant) -> None:
     """Entries from a higher version cannot be downgraded."""
     entry = MockConfigEntry(
-        domain=DOMAIN, data=_VALID_DATA, options=_VALID_OPTIONS, version=99,
+        domain=DOMAIN,
+        data=_VALID_DATA,
+        options=_VALID_OPTIONS,
+        version=99,
     )
     assert await async_migrate_entry(hass, entry) is False

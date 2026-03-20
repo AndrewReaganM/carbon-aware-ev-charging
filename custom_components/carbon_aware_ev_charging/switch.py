@@ -1,4 +1,5 @@
 """Switch entities for Carbon-Aware EV Charging."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -25,26 +26,31 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: EVCarbonCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([
-        EvFallbackWindowSwitch(
-            coordinator, entry,
-            key=CONF_FALLBACK_WINDOW_1_ENABLED,
-            name="EV Fallback Window 1 Enabled",
-            icon="mdi:weather-night",
-        ),
-        EvFallbackWindowSwitch(
-            coordinator, entry,
-            key=CONF_FALLBACK_WINDOW_2_ENABLED,
-            name="EV Fallback Window 2 Enabled",
-            icon="mdi:weather-sunny",
-        ),
-        EvOptionSwitch(
-            coordinator, entry,
-            key=CONF_DRY_RUN,
-            name="EV Dry Run",
-            icon="mdi:test-tube",
-        ),
-    ])
+    async_add_entities(
+        [
+            EvFallbackWindowSwitch(
+                coordinator,
+                entry,
+                key=CONF_FALLBACK_WINDOW_1_ENABLED,
+                name="EV Fallback Window 1 Enabled",
+                icon="mdi:weather-night",
+            ),
+            EvFallbackWindowSwitch(
+                coordinator,
+                entry,
+                key=CONF_FALLBACK_WINDOW_2_ENABLED,
+                name="EV Fallback Window 2 Enabled",
+                icon="mdi:weather-sunny",
+            ),
+            EvOptionSwitch(
+                coordinator,
+                entry,
+                key=CONF_DRY_RUN,
+                name="EV Dry Run",
+                icon="mdi:test-tube",
+            ),
+        ]
+    )
 
 
 class EvFallbackWindowSwitch(EVChargerBaseEntity, SwitchEntity):

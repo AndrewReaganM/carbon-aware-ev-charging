@@ -1,4 +1,5 @@
 """Shared base entity for Carbon-Aware EV Charging."""
+
 from __future__ import annotations
 
 from functools import cached_property
@@ -15,9 +16,7 @@ from .coordinator import EVCarbonCoordinator, EVCarbonData
 class EVChargerBaseEntity(CoordinatorEntity[EVCarbonCoordinator]):
     """Shared base: ties every entity to the integration device."""
 
-    def __init__(
-        self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
-    ) -> None:
+    def __init__(self, coordinator: EVCarbonCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._entry = entry
 

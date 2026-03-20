@@ -1,4 +1,5 @@
 """Sensor entities for Carbon-Aware EV Charging."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -44,9 +45,7 @@ class EvZScoreSensor(EVChargerBaseEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:sigma"
 
-    def __init__(
-        self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
-    ) -> None:
+    def __init__(self, coordinator: EVCarbonCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_Z_SCORE}"
         self._attr_name = "EV CO2 Z-Score"
@@ -57,10 +56,7 @@ class EvZScoreSensor(EVChargerBaseEntity, SensorEntity):
 
     @property
     def available(self) -> bool:  # type: ignore[override]
-        return (
-            self.coordinator.last_update_success
-            and self._data.z_score is not None
-        )
+        return self.coordinator.last_update_success and self._data.z_score is not None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -80,9 +76,7 @@ class EvChargingStatusSensor(EVChargerBaseEntity, SensorEntity):
     _attr_options = CHARGING_STATUSES
     _attr_icon = "mdi:message-text"
 
-    def __init__(
-        self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
-    ) -> None:
+    def __init__(self, coordinator: EVCarbonCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_CHARGING_STATUS}"
         self._attr_name = "EV Charging Status"
@@ -117,9 +111,7 @@ class EvChargeRateKwSensor(EVChargerBaseEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.POWER
     _attr_icon = "mdi:lightning-bolt"
 
-    def __init__(
-        self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
-    ) -> None:
+    def __init__(self, coordinator: EVCarbonCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_CHARGE_RATE_KW}"
         self._attr_name = "EV Charge Rate"
@@ -130,10 +122,7 @@ class EvChargeRateKwSensor(EVChargerBaseEntity, SensorEntity):
 
     @property
     def available(self) -> bool:  # type: ignore[override]
-        return (
-            self.coordinator.last_update_success
-            and self._data.charge_rate_kw is not None
-        )
+        return self.coordinator.last_update_success and self._data.charge_rate_kw is not None
 
 
 class EvChargeCurrentSensor(EVChargerBaseEntity, SensorEntity):
@@ -144,9 +133,7 @@ class EvChargeCurrentSensor(EVChargerBaseEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_icon = "mdi:current-ac"
 
-    def __init__(
-        self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
-    ) -> None:
+    def __init__(self, coordinator: EVCarbonCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_CHARGE_CURRENT}"
         self._attr_name = "EV Charge Current"
@@ -157,7 +144,4 @@ class EvChargeCurrentSensor(EVChargerBaseEntity, SensorEntity):
 
     @property
     def available(self) -> bool:  # type: ignore[override]
-        return (
-            self.coordinator.last_update_success
-            and self._data.charge_current_a is not None
-        )
+        return self.coordinator.last_update_success and self._data.charge_current_a is not None

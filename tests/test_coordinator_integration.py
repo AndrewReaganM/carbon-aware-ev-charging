@@ -4,14 +4,14 @@ These tests exercise the coordinator against a live in-test HA instance so the
 full _async_update_data path is covered: state reads, rolling stats, Z-score
 computation, decision branches, and device control calls.
 """
+
 from __future__ import annotations
 
-import asyncio
+import contextlib
 from collections import deque
-from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.carbon_aware_ev_charging.const import (
@@ -49,7 +49,7 @@ from custom_components.carbon_aware_ev_charging.coordinator import EVCarbonCoord
 
 # ── Deterministic history: mean ≈ 198.5, stdev ≈ 8.66 — passes warmup guards ─
 _HISTORY_VALS = [200 + (i % 30 - 15) for i in range(100)]
-_BASE_TS = datetime(2026, 3, 16, 8, 0, tzinfo=timezone.utc).timestamp()
+_BASE_TS = datetime(2026, 3, 16, 8, 0, tzinfo=UTC).timestamp()
 _HISTORY = [(_BASE_TS - i * 300, float(v)) for i, v in enumerate(_HISTORY_VALS)]
 
 
@@ -134,10 +134,8 @@ def _mock_services(coord: EVCarbonCoordinator, hass: HomeAssistant) -> AsyncMock
 
     def _discard(coro):
         """Close the coroutine to prevent 'never awaited' warnings."""
-        try:
+        with contextlib.suppress(Exception):
             coro.close()
-        except Exception:
-            pass
 
     fake.async_create_task = _discard
     coord.hass = fake
@@ -221,7 +219,7 @@ async def test_co2_unavailable_fallback_window(hass: HomeAssistant) -> None:
     coord = _make_coord(hass)
 
     # Monday 23:00 UTC → fallback_window=True (hour >= 22)
-    fake_now = datetime(2026, 3, 16, 23, 0, tzinfo=timezone.utc)
+    fake_now = datetime(2026, 3, 16, 23, 0, tzinfo=UTC)
     with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = fake_now
         mock_dt.now.return_value = fake_now
@@ -239,7 +237,7 @@ async def test_co2_unavailable_outside_window(hass: HomeAssistant) -> None:
     coord = _make_coord(hass)
 
     # Monday (weekday=0) 09:00 UTC — not in any fallback window or departure day
-    fake_now = datetime(2026, 3, 16, 9, 0, tzinfo=timezone.utc)
+    fake_now = datetime(2026, 3, 16, 9, 0, tzinfo=UTC)
     with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = fake_now
         mock_dt.now.return_value = fake_now
@@ -256,9 +254,7 @@ async def test_charger_turned_on_not_dry_run(hass: HomeAssistant) -> None:
     # Backdate charger last_changed so cooldown is satisfied
     from homeassistant.util import dt as real_dt
 
-    hass.states.get("switch.charger").last_changed = (
-        real_dt.utcnow() - timedelta(minutes=15)
-    )
+    hass.states.get("switch.charger").last_changed = real_dt.utcnow() - timedelta(minutes=15)
 
     coord = _make_coord(hass, {CONF_DRY_RUN: False})
     svc = _mock_services(coord, hass)
@@ -280,6 +276,7 @@ async def test_charger_turned_off_after_dwell(hass: HomeAssistant) -> None:
 
     # Advance the coordinator's view of time 20 min into the future so dwell is met
     from homeassistant.util import dt as real_dt
+
     future = real_dt.utcnow() + timedelta(minutes=20)
     future_local = real_dt.now() + timedelta(minutes=20)
 
@@ -299,13 +296,9 @@ async def test_notification_sent_on_charge_start(hass: HomeAssistant) -> None:
     # Backdate charger so cooldown is met
     from homeassistant.util import dt as real_dt
 
-    hass.states.get("switch.charger").last_changed = (
-        real_dt.utcnow() - timedelta(minutes=15)
-    )
+    hass.states.get("switch.charger").last_changed = real_dt.utcnow() - timedelta(minutes=15)
 
-    coord = _make_coord(
-        hass, {CONF_DRY_RUN: False, CONF_NOTIFY_SERVICE: "notify.test_svc"}
-    )
+    coord = _make_coord(hass, {CONF_DRY_RUN: False, CONF_NOTIFY_SERVICE: "notify.test_svc"})
     svc = _mock_services(coord, hass)
 
     await _run(coord)
@@ -367,7 +360,7 @@ async def test_warmup_z_score_is_none(hass: HomeAssistant) -> None:
     """Empty history (warmup) → z_score is None."""
     _set_states(hass)
     coord = _make_coord(hass)
-    coord._deque_7d = deque(maxlen=DEQUE_7D)   # empty — warmup
+    coord._deque_7d = deque(maxlen=DEQUE_7D)  # empty — warmup
     coord._deque_30d = deque(maxlen=DEQUE_7D)
     coord._last_z_score = None
 
@@ -379,7 +372,11 @@ async def test_charge_current_from_charger_attribute(hass: HomeAssistant) -> Non
     """charge_current_a is populated from the charger switch's charging_rate attr."""
     hass.states.async_set("sensor.co2", "200")
     hass.states.async_set("sensor.fossil", "40")
-    hass.states.async_set("switch.charger", "on", {"icon_name": "CarConnected", "charging_rate": 16})
+    hass.states.async_set(
+        "switch.charger",
+        "on",
+        {"icon_name": "CarConnected", "charging_rate": 16},
+    )
 
     data = await _run(_make_coord(hass))
     assert data.charge_current_a == 16
@@ -422,9 +419,7 @@ async def test_cooldown_allows_turn_on_after_elapsed(hass: HomeAssistant) -> Non
     # Backdate last_changed to 15 min ago so cooldown is met
     from homeassistant.util import dt as real_dt
 
-    hass.states.get("switch.charger").last_changed = (
-        real_dt.utcnow() - timedelta(minutes=15)
-    )
+    hass.states.get("switch.charger").last_changed = real_dt.utcnow() - timedelta(minutes=15)
 
     coord = _make_coord(hass, {CONF_DRY_RUN: False})
     svc = _mock_services(coord, hass)
@@ -439,9 +434,7 @@ async def test_force_on_bypasses_cooldown(hass: HomeAssistant) -> None:
     """force_on mode ignores cooldown and turns charger on immediately."""
     # Charger just turned off (last_changed = now)
     _set_states(hass, co2="150", fossil="20", charger_state="off")
-    coord = _make_coord(
-        hass, {CONF_DRY_RUN: False, CONF_CHARGE_MODE: CHARGE_MODE_FORCE_ON}
-    )
+    coord = _make_coord(hass, {CONF_DRY_RUN: False, CONF_CHARGE_MODE: CHARGE_MODE_FORCE_ON})
     svc = _mock_services(coord, hass)
 
     await _run(coord)
@@ -457,9 +450,7 @@ async def test_cooldown_not_applied_on_first_start(hass: HomeAssistant) -> None:
     # Backdate last_changed to 1 hour ago — well past cooldown
     from homeassistant.util import dt as real_dt
 
-    hass.states.get("switch.charger").last_changed = (
-        real_dt.utcnow() - timedelta(hours=1)
-    )
+    hass.states.get("switch.charger").last_changed = real_dt.utcnow() - timedelta(hours=1)
 
     coord = _make_coord(hass, {CONF_DRY_RUN: False})
     svc = _mock_services(coord, hass)
@@ -473,8 +464,13 @@ async def test_cooldown_not_applied_on_first_start(hass: HomeAssistant) -> None:
 async def test_cooldown_bypassed_on_reconnect(hass: HomeAssistant) -> None:
     """Car unplugged then replugged during cooldown → turn_on is allowed immediately."""
     # First update: car disconnected, charger off (just turned off — within cooldown)
-    _set_states(hass, co2="150", fossil="20", charger_state="off",
-                charger_attrs={"icon_name": "CarNotConnected"})
+    _set_states(
+        hass,
+        co2="150",
+        fossil="20",
+        charger_state="off",
+        charger_attrs={"icon_name": "CarNotConnected"},
+    )
     coord = _make_coord(hass, {CONF_DRY_RUN: False})
     svc = _mock_services(coord, hass)
 
@@ -624,7 +620,7 @@ async def test_stale_data_triggers_fallback_window(hass: HomeAssistant) -> None:
 
     # Burn through the consecutive count
     real_utcnow = real_dt.utcnow()
-    fake_local = datetime(2026, 3, 16, 23, 0, tzinfo=timezone.utc)
+    fake_local = datetime(2026, 3, 16, 23, 0, tzinfo=UTC)
     with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = real_utcnow
         mock_dt.now.return_value = fake_local
@@ -651,7 +647,7 @@ async def test_stale_data_outside_window_paused(hass: HomeAssistant) -> None:
 
     # Real utcnow for staleness, fake local at 09:00 Monday (no window/departure)
     real_utcnow = real_dt.utcnow()
-    fake_local = datetime(2026, 3, 16, 9, 0, tzinfo=timezone.utc)  # Monday
+    fake_local = datetime(2026, 3, 16, 9, 0, tzinfo=UTC)  # Monday
     with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = real_utcnow
         mock_dt.now.return_value = fake_local
@@ -677,7 +673,7 @@ async def test_stale_status_reason(hass: HomeAssistant) -> None:
 
     # Real utcnow for staleness, fake local at 09:00 (no window → paused with stale reason)
     real_utcnow = real_dt.utcnow()
-    fake_local = datetime(2026, 3, 16, 9, 0, tzinfo=timezone.utc)
+    fake_local = datetime(2026, 3, 16, 9, 0, tzinfo=UTC)
     with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = real_utcnow
         mock_dt.now.return_value = fake_local
@@ -719,15 +715,18 @@ async def test_custom_fallback_window_activates(hass: HomeAssistant) -> None:
     hass.states.async_set("sensor.fossil", "unavailable")
     hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
 
-    coord = _make_coord(hass, options_overrides={
-        CONF_FALLBACK_WINDOW_1_START: 20,
-        CONF_FALLBACK_WINDOW_1_END: 4,
-        CONF_FALLBACK_WINDOW_1_ENABLED: True,
-        CONF_FALLBACK_WINDOW_2_ENABLED: False,
-    })
+    coord = _make_coord(
+        hass,
+        options_overrides={
+            CONF_FALLBACK_WINDOW_1_START: 20,
+            CONF_FALLBACK_WINDOW_1_END: 4,
+            CONF_FALLBACK_WINDOW_1_ENABLED: True,
+            CONF_FALLBACK_WINDOW_2_ENABLED: False,
+        },
+    )
 
     # Monday 21:00 → inside custom window 1
-    fake_now = datetime(2026, 3, 16, 21, 0, tzinfo=timezone.utc)
+    fake_now = datetime(2026, 3, 16, 21, 0, tzinfo=UTC)
     with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = fake_now
         mock_dt.now.return_value = fake_now
@@ -742,15 +741,18 @@ async def test_custom_fallback_window_outside(hass: HomeAssistant) -> None:
     hass.states.async_set("sensor.fossil", "unavailable")
     hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
 
-    coord = _make_coord(hass, options_overrides={
-        CONF_FALLBACK_WINDOW_1_START: 20,
-        CONF_FALLBACK_WINDOW_1_END: 4,
-        CONF_FALLBACK_WINDOW_1_ENABLED: True,
-        CONF_FALLBACK_WINDOW_2_ENABLED: False,
-    })
+    coord = _make_coord(
+        hass,
+        options_overrides={
+            CONF_FALLBACK_WINDOW_1_START: 20,
+            CONF_FALLBACK_WINDOW_1_END: 4,
+            CONF_FALLBACK_WINDOW_1_ENABLED: True,
+            CONF_FALLBACK_WINDOW_2_ENABLED: False,
+        },
+    )
 
     # Monday 10:00 → outside both windows
-    fake_now = datetime(2026, 3, 16, 10, 0, tzinfo=timezone.utc)
+    fake_now = datetime(2026, 3, 16, 10, 0, tzinfo=UTC)
     with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = fake_now
         mock_dt.now.return_value = fake_now
@@ -765,13 +767,16 @@ async def test_fallback_window_disabled(hass: HomeAssistant) -> None:
     hass.states.async_set("sensor.fossil", "unavailable")
     hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
 
-    coord = _make_coord(hass, options_overrides={
-        CONF_FALLBACK_WINDOW_1_ENABLED: False,
-        CONF_FALLBACK_WINDOW_2_ENABLED: False,
-    })
+    coord = _make_coord(
+        hass,
+        options_overrides={
+            CONF_FALLBACK_WINDOW_1_ENABLED: False,
+            CONF_FALLBACK_WINDOW_2_ENABLED: False,
+        },
+    )
 
     # Monday 23:00 → would normally be in default window 1 (22–06)
-    fake_now = datetime(2026, 3, 16, 23, 0, tzinfo=timezone.utc)
+    fake_now = datetime(2026, 3, 16, 23, 0, tzinfo=UTC)
     with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = fake_now
         mock_dt.now.return_value = fake_now
@@ -786,14 +791,17 @@ async def test_fallback_window_2_activates(hass: HomeAssistant) -> None:
     hass.states.async_set("sensor.fossil", "unavailable")
     hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
 
-    coord = _make_coord(hass, options_overrides={
-        CONF_FALLBACK_WINDOW_1_ENABLED: False,
-        CONF_FALLBACK_WINDOW_2_START: 12,
-        CONF_FALLBACK_WINDOW_2_END: 16,
-        CONF_FALLBACK_WINDOW_2_ENABLED: True,
-    })
+    coord = _make_coord(
+        hass,
+        options_overrides={
+            CONF_FALLBACK_WINDOW_1_ENABLED: False,
+            CONF_FALLBACK_WINDOW_2_START: 12,
+            CONF_FALLBACK_WINDOW_2_END: 16,
+            CONF_FALLBACK_WINDOW_2_ENABLED: True,
+        },
+    )
 
-    fake_now = datetime(2026, 3, 16, 13, 0, tzinfo=timezone.utc)
+    fake_now = datetime(2026, 3, 16, 13, 0, tzinfo=UTC)
     with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = fake_now
         mock_dt.now.return_value = fake_now
@@ -811,15 +819,18 @@ async def test_departure_prep_inside_window(hass: HomeAssistant) -> None:
     hass.states.async_set("sensor.fossil", "unavailable")
     hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
 
-    coord = _make_coord(hass, options_overrides={
-        CONF_DEPARTURE_HOUR: 5,
-        CONF_DEPARTURE_DAYS: ["3"],  # Thursday
-        CONF_FALLBACK_WINDOW_1_ENABLED: False,
-        CONF_FALLBACK_WINDOW_2_ENABLED: False,
-    })
+    coord = _make_coord(
+        hass,
+        options_overrides={
+            CONF_DEPARTURE_HOUR: 5,
+            CONF_DEPARTURE_DAYS: ["3"],  # Thursday
+            CONF_FALLBACK_WINDOW_1_ENABLED: False,
+            CONF_FALLBACK_WINDOW_2_ENABLED: False,
+        },
+    )
 
     # Thursday (weekday=3) 03:00 → inside prep window [02:00, 05:00)
-    fake_now = datetime(2026, 3, 19, 3, 0, tzinfo=timezone.utc)
+    fake_now = datetime(2026, 3, 19, 3, 0, tzinfo=UTC)
     with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = fake_now
         mock_dt.now.return_value = fake_now
@@ -835,15 +846,18 @@ async def test_departure_prep_outside_window(hass: HomeAssistant) -> None:
     hass.states.async_set("sensor.fossil", "unavailable")
     hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
 
-    coord = _make_coord(hass, options_overrides={
-        CONF_DEPARTURE_HOUR: 5,
-        CONF_DEPARTURE_DAYS: ["3"],  # Thursday
-        CONF_FALLBACK_WINDOW_1_ENABLED: False,
-        CONF_FALLBACK_WINDOW_2_ENABLED: False,
-    })
+    coord = _make_coord(
+        hass,
+        options_overrides={
+            CONF_DEPARTURE_HOUR: 5,
+            CONF_DEPARTURE_DAYS: ["3"],  # Thursday
+            CONF_FALLBACK_WINDOW_1_ENABLED: False,
+            CONF_FALLBACK_WINDOW_2_ENABLED: False,
+        },
+    )
 
     # Thursday (weekday=3) 21:00 → outside prep window [02:00, 05:00)
-    fake_now = datetime(2026, 3, 19, 21, 0, tzinfo=timezone.utc)
+    fake_now = datetime(2026, 3, 19, 21, 0, tzinfo=UTC)
     with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = fake_now
         mock_dt.now.return_value = fake_now
@@ -858,15 +872,18 @@ async def test_departure_prep_at_departure_hour_not_active(hass: HomeAssistant) 
     hass.states.async_set("sensor.fossil", "unavailable")
     hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
 
-    coord = _make_coord(hass, options_overrides={
-        CONF_DEPARTURE_HOUR: 5,
-        CONF_DEPARTURE_DAYS: ["3"],
-        CONF_FALLBACK_WINDOW_1_ENABLED: False,
-        CONF_FALLBACK_WINDOW_2_ENABLED: False,
-    })
+    coord = _make_coord(
+        hass,
+        options_overrides={
+            CONF_DEPARTURE_HOUR: 5,
+            CONF_DEPARTURE_DAYS: ["3"],
+            CONF_FALLBACK_WINDOW_1_ENABLED: False,
+            CONF_FALLBACK_WINDOW_2_ENABLED: False,
+        },
+    )
 
     # Thursday 05:00 → at departure hour, window [02,05) is end-exclusive
-    fake_now = datetime(2026, 3, 19, 5, 0, tzinfo=timezone.utc)
+    fake_now = datetime(2026, 3, 19, 5, 0, tzinfo=UTC)
     with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = fake_now
         mock_dt.now.return_value = fake_now
@@ -881,15 +898,18 @@ async def test_departure_prep_wrong_day(hass: HomeAssistant) -> None:
     hass.states.async_set("sensor.fossil", "unavailable")
     hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
 
-    coord = _make_coord(hass, options_overrides={
-        CONF_DEPARTURE_HOUR: 5,
-        CONF_DEPARTURE_DAYS: ["3"],  # Thursday only
-        CONF_FALLBACK_WINDOW_1_ENABLED: False,
-        CONF_FALLBACK_WINDOW_2_ENABLED: False,
-    })
+    coord = _make_coord(
+        hass,
+        options_overrides={
+            CONF_DEPARTURE_HOUR: 5,
+            CONF_DEPARTURE_DAYS: ["3"],  # Thursday only
+            CONF_FALLBACK_WINDOW_1_ENABLED: False,
+            CONF_FALLBACK_WINDOW_2_ENABLED: False,
+        },
+    )
 
     # Monday (weekday=0) 03:00 → right hour window, wrong day
-    fake_now = datetime(2026, 3, 16, 3, 0, tzinfo=timezone.utc)
+    fake_now = datetime(2026, 3, 16, 3, 0, tzinfo=UTC)
     with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = fake_now
         mock_dt.now.return_value = fake_now
@@ -903,15 +923,18 @@ async def test_departure_prep_dirty_grid_still_charges(hass: HomeAssistant) -> N
     # High CO2 + high fossil → carbon_good=False, data IS available
     _set_states(hass, co2="500", fossil="80", charger_attrs={"icon_name": "CarConnected"})
 
-    coord = _make_coord(hass, options_overrides={
-        CONF_DEPARTURE_HOUR: 5,
-        CONF_DEPARTURE_DAYS: ["3"],  # Thursday
-        CONF_FALLBACK_WINDOW_1_ENABLED: False,
-        CONF_FALLBACK_WINDOW_2_ENABLED: False,
-    })
+    coord = _make_coord(
+        hass,
+        options_overrides={
+            CONF_DEPARTURE_HOUR: 5,
+            CONF_DEPARTURE_DAYS: ["3"],  # Thursday
+            CONF_FALLBACK_WINDOW_1_ENABLED: False,
+            CONF_FALLBACK_WINDOW_2_ENABLED: False,
+        },
+    )
 
     # Thursday 03:00 → inside prep window, grid is dirty but prep wins
-    fake_now = datetime(2026, 3, 19, 3, 0, tzinfo=timezone.utc)
+    fake_now = datetime(2026, 3, 19, 3, 0, tzinfo=UTC)
     with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = fake_now
         mock_dt.now.return_value = fake_now
@@ -928,15 +951,18 @@ async def test_departure_prep_midnight_wraparound(hass: HomeAssistant) -> None:
     hass.states.async_set("sensor.fossil", "unavailable")
     hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
 
-    coord = _make_coord(hass, options_overrides={
-        CONF_DEPARTURE_HOUR: 1,
-        CONF_DEPARTURE_DAYS: ["3"],  # Thursday
-        CONF_FALLBACK_WINDOW_1_ENABLED: False,
-        CONF_FALLBACK_WINDOW_2_ENABLED: False,
-    })
+    coord = _make_coord(
+        hass,
+        options_overrides={
+            CONF_DEPARTURE_HOUR: 1,
+            CONF_DEPARTURE_DAYS: ["3"],  # Thursday
+            CONF_FALLBACK_WINDOW_1_ENABLED: False,
+            CONF_FALLBACK_WINDOW_2_ENABLED: False,
+        },
+    )
 
     # Thursday 23:00 → inside window [22, 1)
-    fake_now = datetime(2026, 3, 19, 23, 0, tzinfo=timezone.utc)
+    fake_now = datetime(2026, 3, 19, 23, 0, tzinfo=UTC)
     with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = fake_now
         mock_dt.now.return_value = fake_now
@@ -946,13 +972,16 @@ async def test_departure_prep_midnight_wraparound(hass: HomeAssistant) -> None:
     assert data.status_enum == "departure_prep"
 
     # Thursday 00:00 → also inside window [22, 1)
-    fake_now = datetime(2026, 3, 20, 0, 0, tzinfo=timezone.utc)  # Fri but still Thu night
-    coord2 = _make_coord(hass, options_overrides={
-        CONF_DEPARTURE_HOUR: 1,
-        CONF_DEPARTURE_DAYS: ["3", "4"],  # Thu + Fri (Fri 00:00 = weekday 4)
-        CONF_FALLBACK_WINDOW_1_ENABLED: False,
-        CONF_FALLBACK_WINDOW_2_ENABLED: False,
-    })
+    fake_now = datetime(2026, 3, 20, 0, 0, tzinfo=UTC)  # Fri but still Thu night
+    coord2 = _make_coord(
+        hass,
+        options_overrides={
+            CONF_DEPARTURE_HOUR: 1,
+            CONF_DEPARTURE_DAYS: ["3", "4"],  # Thu + Fri (Fri 00:00 = weekday 4)
+            CONF_FALLBACK_WINDOW_1_ENABLED: False,
+            CONF_FALLBACK_WINDOW_2_ENABLED: False,
+        },
+    )
     with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = fake_now
         mock_dt.now.return_value = fake_now
@@ -961,7 +990,7 @@ async def test_departure_prep_midnight_wraparound(hass: HomeAssistant) -> None:
     assert data.predicted_state == STATE_SCHEDULED
 
     # Thursday 01:00 → at departure hour, OUTSIDE window [22, 1)
-    fake_now = datetime(2026, 3, 19, 1, 0, tzinfo=timezone.utc)
+    fake_now = datetime(2026, 3, 19, 1, 0, tzinfo=UTC)
     with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
         mock_dt.utcnow.return_value = fake_now
         mock_dt.now.return_value = fake_now
@@ -1027,9 +1056,7 @@ async def test_repair_issue_dismissed_on_recovery(hass: HomeAssistant) -> None:
     ) as mock_delete:
         await _run(coord)
 
-    mock_delete.assert_called_once_with(
-        hass, DOMAIN, "sensor_unavailable_sensor.co2"
-    )
+    mock_delete.assert_called_once_with(hass, DOMAIN, "sensor_unavailable_sensor.co2")
     assert coord._co2_unavailable_since is None
 
 
@@ -1066,7 +1093,7 @@ async def test_old_entries_pruned_from_7d_deque(hass: HomeAssistant) -> None:
     coord = _make_coord(hass)
 
     # Inject entries: 50 within 7d, 50 older than 7d
-    now_ts = datetime.now(tz=timezone.utc).timestamp()
+    now_ts = datetime.now(tz=UTC).timestamp()
     old_entries = [(now_ts - 8 * 86_400 + i * 60, 200.0) for i in range(50)]
     fresh_entries = [(now_ts - 3 * 86_400 + i * 60, 200.0) for i in range(50)]
     coord._deque_7d.clear()
@@ -1086,7 +1113,7 @@ async def test_old_entries_pruned_from_30d_deque(hass: HomeAssistant) -> None:
     _set_states(hass, co2="150", fossil="30")
     coord = _make_coord(hass)
 
-    now_ts = datetime.now(tz=timezone.utc).timestamp()
+    now_ts = datetime.now(tz=UTC).timestamp()
     old_entries = [(now_ts - 35 * 86_400 + i * 60, 200.0) for i in range(30)]
     fresh_entries = [(now_ts - 10 * 86_400 + i * 60, 200.0) for i in range(50)]
     coord._deque_30d.clear()
@@ -1106,7 +1133,7 @@ async def test_pruning_preserves_recent_entries(hass: HomeAssistant) -> None:
     _set_states(hass, co2="150", fossil="30")
     coord = _make_coord(hass)
 
-    now_ts = datetime.now(tz=timezone.utc).timestamp()
+    now_ts = datetime.now(tz=UTC).timestamp()
     # All entries are within 1 day — well inside 7d window
     recent_entries = [(now_ts - 3600 + i * 60, 180.0 + i) for i in range(40)]
     coord._deque_7d.clear()

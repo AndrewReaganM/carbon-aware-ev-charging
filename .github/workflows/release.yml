@@ -12,6 +12,24 @@ permissions:
   pull-requests: write
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Ruff check
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -44,7 +62,7 @@ jobs:
         uses: "home-assistant/actions/hassfest@master"
 
   release:
-    needs: [test, validate-hacs, validate-hassfest]
+    needs: [lint, test, validate-hacs, validate-hassfest]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:

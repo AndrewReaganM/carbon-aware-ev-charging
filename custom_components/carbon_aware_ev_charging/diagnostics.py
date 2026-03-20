@@ -1,4 +1,5 @@
 """Diagnostics support for Carbon-Aware EV Charging."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -20,13 +21,8 @@ async def async_get_config_entry_diagnostics(
     data = coordinator.data
 
     return {
-        "config": {
-            k: v for k, v in entry.data.items() if k not in TO_REDACT
-        },
-        "options": {
-            k: ("**REDACTED**" if k in TO_REDACT else v)
-            for k, v in entry.options.items()
-        },
+        "config": {k: v for k, v in entry.data.items() if k not in TO_REDACT},
+        "options": {k: ("**REDACTED**" if k in TO_REDACT else v) for k, v in entry.options.items()},
         "coordinator": {
             "last_z_score": coordinator._last_z_score,
             "deque_7d_size": len(coordinator._deque_7d),

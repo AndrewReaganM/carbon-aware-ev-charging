@@ -1,10 +1,10 @@
 """Config flow for Carbon-Aware EV Charging."""
+
 from __future__ import annotations
 
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
@@ -33,11 +33,11 @@ from .const import (
     CONF_DEPARTURE_DAYS,
     CONF_DEPARTURE_HOUR,
     CONF_DRY_RUN,
-    CONF_FALLBACK_WINDOW_1_END,
     CONF_FALLBACK_WINDOW_1_ENABLED,
+    CONF_FALLBACK_WINDOW_1_END,
     CONF_FALLBACK_WINDOW_1_START,
-    CONF_FALLBACK_WINDOW_2_END,
     CONF_FALLBACK_WINDOW_2_ENABLED,
+    CONF_FALLBACK_WINDOW_2_END,
     CONF_FALLBACK_WINDOW_2_START,
     CONF_FOSSIL_SENSOR,
     CONF_LED_EFFECT_SELECT,
@@ -49,9 +49,7 @@ from .const import (
 )
 
 
-class EVCarbonChargerConfigFlow(
-    config_entries.ConfigFlow, domain=DOMAIN
-):
+class EVCarbonChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Three-step config flow: sensors → LED → preferences."""
 
     VERSION = 1
@@ -93,9 +91,9 @@ class EVCarbonChargerConfigFlow(
                     vol.Required(CONF_CHARGER_SWITCH): EntitySelector(
                         EntitySelectorConfig(domain="switch")
                     ),
-                    vol.Optional(
-                        CONF_CHARGER_CONNECTED_ATTR, default="icon_name"
-                    ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
+                    vol.Optional(CONF_CHARGER_CONNECTED_ATTR, default="icon_name"): TextSelector(
+                        TextSelectorConfig(type=TextSelectorType.TEXT)
+                    ),
                     vol.Optional(
                         CONF_CHARGER_NOT_CONNECTED_VALUE, default="CarNotConnected"
                     ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
@@ -186,9 +184,7 @@ class EVCarbonChargerConfigFlow(
                     vol.Required(
                         CONF_DEPARTURE_HOUR, default=PREFERENCE_DEFAULTS[CONF_DEPARTURE_HOUR]
                     ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
-                        )
+                        NumberSelectorConfig(min=0, max=23, step=1, mode=NumberSelectorMode.BOX)
                     ),
                     vol.Required(
                         CONF_DEPARTURE_DAYS, default=PREFERENCE_DEFAULTS[CONF_DEPARTURE_DAYS]
@@ -199,50 +195,45 @@ class EVCarbonChargerConfigFlow(
                             mode=SelectSelectorMode.LIST,
                         )
                     ),
-                    vol.Optional(CONF_DRY_RUN, default=PREFERENCE_DEFAULTS[CONF_DRY_RUN]): BooleanSelector(),
+                    vol.Optional(
+                        CONF_DRY_RUN,
+                        default=PREFERENCE_DEFAULTS[CONF_DRY_RUN],
+                    ): BooleanSelector(),
                     vol.Required(
-                        CONF_FALLBACK_WINDOW_1_ENABLED, default=PREFERENCE_DEFAULTS[CONF_FALLBACK_WINDOW_1_ENABLED]
+                        CONF_FALLBACK_WINDOW_1_ENABLED,
+                        default=PREFERENCE_DEFAULTS[CONF_FALLBACK_WINDOW_1_ENABLED],
                     ): BooleanSelector(),
                     vol.Required(
                         CONF_FALLBACK_WINDOW_1_START,
                         default=PREFERENCE_DEFAULTS[CONF_FALLBACK_WINDOW_1_START],
                     ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
-                        )
+                        NumberSelectorConfig(min=0, max=23, step=1, mode=NumberSelectorMode.BOX)
                     ),
                     vol.Required(
                         CONF_FALLBACK_WINDOW_1_END,
                         default=PREFERENCE_DEFAULTS[CONF_FALLBACK_WINDOW_1_END],
                     ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
-                        )
+                        NumberSelectorConfig(min=0, max=23, step=1, mode=NumberSelectorMode.BOX)
                     ),
                     vol.Required(
-                        CONF_FALLBACK_WINDOW_2_ENABLED, default=PREFERENCE_DEFAULTS[CONF_FALLBACK_WINDOW_2_ENABLED]
+                        CONF_FALLBACK_WINDOW_2_ENABLED,
+                        default=PREFERENCE_DEFAULTS[CONF_FALLBACK_WINDOW_2_ENABLED],
                     ): BooleanSelector(),
                     vol.Required(
                         CONF_FALLBACK_WINDOW_2_START,
                         default=PREFERENCE_DEFAULTS[CONF_FALLBACK_WINDOW_2_START],
                     ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
-                        )
+                        NumberSelectorConfig(min=0, max=23, step=1, mode=NumberSelectorMode.BOX)
                     ),
                     vol.Required(
                         CONF_FALLBACK_WINDOW_2_END,
                         default=PREFERENCE_DEFAULTS[CONF_FALLBACK_WINDOW_2_END],
                     ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
-                        )
+                        NumberSelectorConfig(min=0, max=23, step=1, mode=NumberSelectorMode.BOX)
                     ),
                     vol.Optional(
                         CONF_NOTIFY_SERVICE, default=PREFERENCE_DEFAULTS[CONF_NOTIFY_SERVICE]
-                    ): TextSelector(
-                        TextSelectorConfig(type=TextSelectorType.TEXT)
-                    ),
+                    ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
                 }
             ),
             errors=errors,
@@ -316,9 +307,7 @@ class EVCarbonChargerOptionsFlow(config_entries.OptionsFlow):
                         CONF_DEPARTURE_HOUR,
                         default=_opt(CONF_DEPARTURE_HOUR),
                     ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
-                        )
+                        NumberSelectorConfig(min=0, max=23, step=1, mode=NumberSelectorMode.BOX)
                     ),
                     vol.Required(
                         CONF_DEPARTURE_DAYS,
@@ -342,17 +331,13 @@ class EVCarbonChargerOptionsFlow(config_entries.OptionsFlow):
                         CONF_FALLBACK_WINDOW_1_START,
                         default=_opt(CONF_FALLBACK_WINDOW_1_START),
                     ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
-                        )
+                        NumberSelectorConfig(min=0, max=23, step=1, mode=NumberSelectorMode.BOX)
                     ),
                     vol.Required(
                         CONF_FALLBACK_WINDOW_1_END,
                         default=_opt(CONF_FALLBACK_WINDOW_1_END),
                     ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
-                        )
+                        NumberSelectorConfig(min=0, max=23, step=1, mode=NumberSelectorMode.BOX)
                     ),
                     vol.Required(
                         CONF_FALLBACK_WINDOW_2_ENABLED,
@@ -362,24 +347,18 @@ class EVCarbonChargerOptionsFlow(config_entries.OptionsFlow):
                         CONF_FALLBACK_WINDOW_2_START,
                         default=_opt(CONF_FALLBACK_WINDOW_2_START),
                     ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
-                        )
+                        NumberSelectorConfig(min=0, max=23, step=1, mode=NumberSelectorMode.BOX)
                     ),
                     vol.Required(
                         CONF_FALLBACK_WINDOW_2_END,
                         default=_opt(CONF_FALLBACK_WINDOW_2_END),
                     ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=0, max=23, step=1, mode=NumberSelectorMode.BOX
-                        )
+                        NumberSelectorConfig(min=0, max=23, step=1, mode=NumberSelectorMode.BOX)
                     ),
                     vol.Optional(
                         CONF_NOTIFY_SERVICE,
                         default=_opt(CONF_NOTIFY_SERVICE),
-                    ): TextSelector(
-                        TextSelectorConfig(type=TextSelectorType.TEXT)
-                    ),
+                    ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
                 }
             ),
             errors=errors,

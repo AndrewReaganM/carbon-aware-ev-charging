@@ -1,6 +1,8 @@
 """DataUpdateCoordinator for Carbon-Aware EV Charging."""
+
 from __future__ import annotations
 
+import contextlib
 import logging
 import statistics
 from collections import deque
@@ -34,19 +36,19 @@ from .const import (
     CONF_DEPARTURE_DAYS,
     CONF_DEPARTURE_HOUR,
     CONF_DRY_RUN,
-    CONF_FALLBACK_WINDOW_1_END,
     CONF_FALLBACK_WINDOW_1_ENABLED,
+    CONF_FALLBACK_WINDOW_1_END,
     CONF_FALLBACK_WINDOW_1_START,
-    CONF_FALLBACK_WINDOW_2_END,
     CONF_FALLBACK_WINDOW_2_ENABLED,
+    CONF_FALLBACK_WINDOW_2_END,
     CONF_FALLBACK_WINDOW_2_START,
     CONF_FOSSIL_SENSOR,
     CONF_LED_EFFECT_SELECT,
     CONF_LED_LIGHT,
     CONF_NOTIFY_SERVICE,
-    DEQUE_30D,
-    DEQUE_7D,
     DEPARTURE_PREP_HOURS,
+    DEQUE_7D,
+    DEQUE_30D,
     DOMAIN,
     FOSSIL_HARD_FLOOR,
     HYSTERESIS_SIGMA,
@@ -58,10 +60,7 @@ from .const import (
     STALE_DATA_MINUTES,
     STALE_HARD_CONSECUTIVE,
     STALE_HARD_MINUTES,
-    STATE_CARBON,
-    STATE_OVERRIDE,
     STATE_PAUSED,
-    STATE_SCHEDULED,
     STATUS_DATA_STALE,
     STATUS_DEPARTURE_PREP,
     STATUS_FALLBACK,
@@ -267,8 +266,8 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
     async def _async_backfill_from_recorder(self) -> None:
         """Seed rolling deques from the recorder's existing CO₂ history."""
         try:
-            from homeassistant.components.recorder import get_instance  # noqa: PLC0415
-            from homeassistant.components.recorder.history import (  # noqa: PLC0415
+            from homeassistant.components.recorder import get_instance
+            from homeassistant.components.recorder.history import (
                 state_changes_during_period,
             )
         except ImportError:
@@ -306,7 +305,9 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         self._load_recorder_states(history.get(co2_entity, []), start_7d)
 
     def _load_recorder_states(
-        self, states: list, start_7d: datetime,
+        self,
+        states: list,
+        start_7d: datetime,
     ) -> None:
         """Parse recorder State objects into the rolling deques."""
         if not states:
@@ -403,9 +404,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             fossil_entity=cfg[CONF_FOSSIL_SENSOR],
             charger_entity=cfg[CONF_CHARGER_SWITCH],
             connected_attr=cfg.get(CONF_CHARGER_CONNECTED_ATTR, "icon_name"),
-            not_connected_val=cfg.get(
-                CONF_CHARGER_NOT_CONNECTED_VALUE, "CarNotConnected"
-            ),
+            not_connected_val=cfg.get(CONF_CHARGER_NOT_CONNECTED_VALUE, "CarNotConnected"),
             power_entity=cfg.get(CONF_CHARGER_POWER_SENSOR),
             led_light=cfg.get(CONF_LED_LIGHT),
             led_effect_select=cfg.get(CONF_LED_EFFECT_SELECT),
@@ -436,9 +435,12 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         _LOGGER.debug(
             "[EV] raw sensor states: co2_entity=%s state=%r  "
             "fossil_entity=%s state=%r  charger_entity=%s state=%r",
-            cfg.co2_entity, co2_state.state if co2_state else "MISSING",
-            cfg.fossil_entity, fossil_state.state if fossil_state else "MISSING",
-            cfg.charger_entity, charger_state.state if charger_state else "MISSING",
+            cfg.co2_entity,
+            co2_state.state if co2_state else "MISSING",
+            cfg.fossil_entity,
+            fossil_state.state if fossil_state else "MISSING",
+            cfg.charger_entity,
+            charger_state.state if charger_state else "MISSING",
         )
 
         if co2_state and co2_state.state not in _UNAVAILABLE_STATES:
@@ -494,28 +496,22 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
 
         is_connected = False
         if charger_state:
-            is_connected = (
-                charger_state.attributes.get(cfg.connected_attr) != cfg.not_connected_val
-            )
+            is_connected = charger_state.attributes.get(cfg.connected_attr) != cfg.not_connected_val
 
         # Charger aux sensors
         charge_rate_kw: float | None = None
         if cfg.power_entity:
             ps = self.hass.states.get(cfg.power_entity)
             if ps and ps.state not in _UNAVAILABLE_STATES:
-                try:
+                with contextlib.suppress(ValueError):
                     charge_rate_kw = round(float(ps.state) / 1000, 2)
-                except ValueError:
-                    pass
 
         charge_current_a: int | None = None
         if charger_state:
             raw = charger_state.attributes.get("charging_rate")
             if raw is not None:
-                try:
+                with contextlib.suppress(TypeError, ValueError):
                     charge_current_a = int(raw)
-                except (TypeError, ValueError):
-                    pass
 
         charger_is_on = charger_state is not None and charger_state.state == "on"
 
@@ -532,7 +528,9 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         )
 
     def _check_sensor_availability(
-        self, cfg: _ResolvedConfig, sensors: _SensorReadings,
+        self,
+        cfg: _ResolvedConfig,
+        sensors: _SensorReadings,
     ) -> None:
         """Raise or dismiss HA Repair issues for prolonged sensor unavailability."""
         now = dt_util.utcnow()
@@ -602,23 +600,26 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         _LOGGER.debug(
             "[EV] z_score inputs: co2=%s mean_7d=%s stdev_7d=%s "
             "mean_30d=%s stdev_30d=%s deque_7d_len=%d deque_30d_len=%d",
-            co2, mean_7d, stdev_7d, mean_30d, stdev_30d,
-            len(self._deque_7d), len(self._deque_30d),
+            co2,
+            mean_7d,
+            stdev_7d,
+            mean_30d,
+            stdev_30d,
+            len(self._deque_7d),
+            len(self._deque_30d),
         )
 
         z_score: float | None = None
         if co2 is not None and mean_7d is not None:
-            if stdev_7d:
-                z_score = round((co2 - mean_7d) / stdev_7d, 2)
-            else:
-                # stdev=0 means all readings are identical — current value is
-                # exactly at the mean, so z_score is 0 by definition.
-                z_score = 0.0
+            # stdev=0 means all readings identical → z_score is 0 by definition
+            z_score = round((co2 - mean_7d) / stdev_7d, 2) if stdev_7d else 0.0
             self._last_z_score = z_score
         else:
             _LOGGER.debug(
                 "[EV] z_score blocked: co2_none=%s mean_none=%s — holding last=%s",
-                co2 is None, mean_7d is None, self._last_z_score,
+                co2 is None,
+                mean_7d is None,
+                self._last_z_score,
             )
             z_score = self._last_z_score  # hold last good value
 
@@ -639,9 +640,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         """Determine status_enum; derive predicted_state and should_charge."""
         # Carbon gate (with hysteresis)
         threshold = THRESHOLDS[cfg.carbon_mode]
-        effective_threshold = (
-            threshold + HYSTERESIS_SIGMA if sensors.charger_is_on else threshold
-        )
+        effective_threshold = threshold + HYSTERESIS_SIGMA if sensors.charger_is_on else threshold
         carbon_good = (
             not sensors.carbon_data_unavailable
             and stats.z_score is not None
@@ -655,13 +654,11 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         hour = now.hour
         weekday = now.weekday()
         fallback_window = (
-            (cfg.fb1_enabled and _in_hour_window(hour, cfg.fb1_start, cfg.fb1_end))
-            or (cfg.fb2_enabled and _in_hour_window(hour, cfg.fb2_start, cfg.fb2_end))
-        )
+            cfg.fb1_enabled and _in_hour_window(hour, cfg.fb1_start, cfg.fb1_end)
+        ) or (cfg.fb2_enabled and _in_hour_window(hour, cfg.fb2_start, cfg.fb2_end))
         departure_prep_start = (cfg.departure_hour - DEPARTURE_PREP_HOURS) % 24
-        departure_prep = (
-            weekday in cfg.departure_days
-            and _in_hour_window(hour, departure_prep_start, cfg.departure_hour)
+        departure_prep = weekday in cfg.departure_days and _in_hour_window(
+            hour, departure_prep_start, cfg.departure_hour
         )
 
         # ── Single decision chain ─────────────────────────────────────────
@@ -680,9 +677,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         elif departure_prep:
             day_name = _DAY_NAMES[weekday]
             status_enum = STATUS_DEPARTURE_PREP
-            status_reason = (
-                f"Charging — departure prep {day_name} {cfg.departure_hour:02d}:00"
-            )
+            status_reason = f"Charging — departure prep {day_name} {cfg.departure_hour:02d}:00"
         elif sensors.carbon_data_unavailable and fallback_window:
             status_enum = STATUS_FALLBACK
             status_reason = "Charging — fallback window"
@@ -792,9 +787,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
                     elapsed_min = (
                         dt_util.utcnow() - sensors.charger_state.last_changed
                     ).total_seconds() / 60
-                    min_dwell_met = (
-                        elapsed_min >= MIN_DWELL_MINUTES or not sensors.is_connected
-                    )
+                    min_dwell_met = elapsed_min >= MIN_DWELL_MINUTES or not sensors.is_connected
 
                 if min_dwell_met:
                     await self.hass.services.async_call(
@@ -845,9 +838,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             }
         )
 
-    async def _async_notify(
-        self, service: str, title: str, message: str
-    ) -> None:
+    async def _async_notify(self, service: str, title: str, message: str) -> None:
         """Fire a push notification via a configured notify service."""
         parts = service.split(".", 1)
         if len(parts) != 2:

@@ -1,4 +1,5 @@
 """Constants for the Carbon-Aware EV Charging integration."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -39,9 +40,9 @@ CARBON_MODE_STRICT = "Strict"
 CARBON_MODES = [CARBON_MODE_LENIENT, CARBON_MODE_MODERATE, CARBON_MODE_STRICT]
 
 # Z-score thresholds per mode (normal-distribution rank in parens)
-THRESHOLD_LENIENT = 0.92   # ~82 % of hours pass
+THRESHOLD_LENIENT = 0.92  # ~82 % of hours pass
 THRESHOLD_MODERATE = 0.47  # ~68 % of hours pass
-THRESHOLD_STRICT = -0.18   # ~43 % of hours pass
+THRESHOLD_STRICT = -0.18  # ~43 % of hours pass
 
 THRESHOLDS: dict[str, float] = {
     CARBON_MODE_LENIENT: THRESHOLD_LENIENT,
@@ -57,7 +58,7 @@ FOSSIL_HARD_FLOOR = 75.0
 
 # Rolling deque sizes (5-minute poll cadence)
 READINGS_PER_DAY = 288
-DEQUE_7D = 7 * READINGS_PER_DAY    # 2 016
+DEQUE_7D = 7 * READINGS_PER_DAY  # 2 016
 DEQUE_30D = 30 * READINGS_PER_DAY  # 8 640
 
 # Minimum charger dwell time before turning off (minutes)

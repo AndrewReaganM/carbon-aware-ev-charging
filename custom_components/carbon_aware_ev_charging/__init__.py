@@ -1,4 +1,5 @@
 """Carbon-Aware EV Charging integration setup."""
+
 from __future__ import annotations
 
 import json
@@ -67,9 +68,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await store.async_remove()
 
 
-async def _async_options_updated(
-    hass: HomeAssistant, entry: ConfigEntry
-) -> None:
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Refresh the coordinator when options change (no full reload)."""
     coordinator: EVCarbonCoordinator = hass.data[DOMAIN][entry.entry_id]
     await coordinator.async_request_refresh()

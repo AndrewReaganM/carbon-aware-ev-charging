@@ -1,9 +1,9 @@
 """Config flow tests for Carbon-Aware EV Charging."""
+
 from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
@@ -51,6 +51,7 @@ def _seed_states(hass: HomeAssistant) -> None:
 
 # ── Happy path ─────────────────────────────────────────────────────────────────
 
+
 async def test_full_config_flow(hass: HomeAssistant) -> None:
     """A complete three-step config flow creates a config entry."""
     _seed_states(hass)
@@ -65,21 +66,15 @@ async def test_full_config_flow(hass: HomeAssistant) -> None:
         assert result["type"] == FlowResultType.FORM
         assert result["step_id"] == "user"
 
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], VALID_STEP1
-        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], VALID_STEP1)
         assert result["type"] == FlowResultType.FORM
         assert result["step_id"] == "led"
 
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], VALID_STEP2
-        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], VALID_STEP2)
         assert result["type"] == FlowResultType.FORM
         assert result["step_id"] == "prefs"
 
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], VALID_STEP3
-        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], VALID_STEP3)
         assert result["type"] == FlowResultType.CREATE_ENTRY
         assert result["title"] == "Carbon-Aware EV Charging"
         assert result["data"][CONF_CO2_SENSOR] == "sensor.co2"
@@ -87,6 +82,7 @@ async def test_full_config_flow(hass: HomeAssistant) -> None:
 
 
 # ── Validation — unknown entity ────────────────────────────────────────────────
+
 
 async def test_invalid_co2_sensor_shows_error(hass: HomeAssistant) -> None:
     """Entering an entity that doesn't exist shows entity_not_found error."""
@@ -119,12 +115,8 @@ async def test_invalid_notify_service_shows_error(hass: HomeAssistant) -> None:
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], VALID_STEP1
-        )
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], VALID_STEP2
-        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], VALID_STEP1)
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], VALID_STEP2)
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {**VALID_STEP3, CONF_NOTIFY_SERVICE: "mobile_app_my_phone"},  # missing prefix
@@ -134,6 +126,7 @@ async def test_invalid_notify_service_shows_error(hass: HomeAssistant) -> None:
 
 
 # ── Options flow ───────────────────────────────────────────────────────────────
+
 
 async def test_options_flow_updates_carbon_mode(hass: HomeAssistant) -> None:
     """Options flow lets user change carbon_mode without re-running the wizard."""
@@ -147,15 +140,9 @@ async def test_options_flow_updates_carbon_mode(hass: HomeAssistant) -> None:
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], VALID_STEP1
-        )
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], VALID_STEP2
-        )
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], VALID_STEP3
-        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], VALID_STEP1)
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], VALID_STEP2)
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], VALID_STEP3)
         assert result["type"] == FlowResultType.CREATE_ENTRY
 
     entry = hass.config_entries.async_entries(DOMAIN)[0]
