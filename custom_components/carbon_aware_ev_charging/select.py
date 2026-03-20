@@ -13,6 +13,8 @@ from .const import (
     CONF_CARBON_MODE,
     CONF_CHARGE_MODE,
     DOMAIN,
+    ENTITY_ID_CARBON_MODE,
+    ENTITY_ID_CHARGE_MODE,
     PREFERENCE_DEFAULTS,
 )
 from .coordinator import EVCarbonCoordinator
@@ -42,7 +44,7 @@ class EvChargeModeSelect(EVChargerBaseEntity, SelectEntity):
         self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
     ) -> None:
         super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{entry.entry_id}_ev_charge_mode"
+        self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_CHARGE_MODE}"
         self._attr_name = "EV Charge Mode"
 
     @property
@@ -63,7 +65,7 @@ class EvCarbonModeSelect(EVChargerBaseEntity, SelectEntity):
         self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
     ) -> None:
         super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{entry.entry_id}_ev_carbon_mode"
+        self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_CARBON_MODE}"
         self._attr_name = "EV Carbon Sensitivity"
 
     @property

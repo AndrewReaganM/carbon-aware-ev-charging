@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .base_entity import EVChargerBaseEntity
-from .const import DOMAIN
+from .const import DOMAIN, ENTITY_ID_CONNECTED, ENTITY_ID_LOW_CARBON_NOW
 from .coordinator import EVCarbonCoordinator
 
 
@@ -38,7 +38,7 @@ class EvConnectedBinarySensor(EVChargerBaseEntity, BinarySensorEntity):
         self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
     ) -> None:
         super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{entry.entry_id}_ev_connected"
+        self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_CONNECTED}"
         self._attr_name = "EV Connected"
 
     @property
@@ -57,7 +57,7 @@ class EvLowCarbonNowBinarySensor(EVChargerBaseEntity, BinarySensorEntity):
         self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
     ) -> None:
         super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{entry.entry_id}_ev_low_carbon_now"
+        self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_LOW_CARBON_NOW}"
         self._attr_name = "EV Low Carbon Now"
 
     @property

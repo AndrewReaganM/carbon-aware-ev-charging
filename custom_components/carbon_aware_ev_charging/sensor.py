@@ -9,7 +9,15 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .base_entity import EVChargerBaseEntity
-from .const import CHARGING_STATUSES, CONF_CHARGER_POWER_SENSOR, DOMAIN
+from .const import (
+    CHARGING_STATUSES,
+    CONF_CHARGER_POWER_SENSOR,
+    DOMAIN,
+    ENTITY_ID_CHARGE_CURRENT,
+    ENTITY_ID_CHARGE_RATE_KW,
+    ENTITY_ID_CHARGING_STATUS,
+    ENTITY_ID_Z_SCORE,
+)
 from .coordinator import EVCarbonCoordinator
 
 
@@ -40,7 +48,7 @@ class EvZScoreSensor(EVChargerBaseEntity, SensorEntity):
         self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
     ) -> None:
         super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{entry.entry_id}_co2_z_score"
+        self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_Z_SCORE}"
         self._attr_name = "EV CO2 Z-Score"
 
     @property
@@ -76,7 +84,7 @@ class EvChargingStatusSensor(EVChargerBaseEntity, SensorEntity):
         self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
     ) -> None:
         super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{entry.entry_id}_ev_charging_status"
+        self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_CHARGING_STATUS}"
         self._attr_name = "EV Charging Status"
 
     @property
@@ -113,7 +121,7 @@ class EvChargeRateKwSensor(EVChargerBaseEntity, SensorEntity):
         self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
     ) -> None:
         super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{entry.entry_id}_ev_charge_rate_kw"
+        self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_CHARGE_RATE_KW}"
         self._attr_name = "EV Charge Rate"
 
     @property
@@ -140,7 +148,7 @@ class EvChargeCurrentSensor(EVChargerBaseEntity, SensorEntity):
         self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
     ) -> None:
         super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{entry.entry_id}_ev_charge_current"
+        self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_CHARGE_CURRENT}"
         self._attr_name = "EV Charge Current"
 
     @property

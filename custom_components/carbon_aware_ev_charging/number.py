@@ -14,6 +14,7 @@ from .const import (
     CONF_FALLBACK_WINDOW_2_END,
     CONF_FALLBACK_WINDOW_2_START,
     DOMAIN,
+    ENTITY_ID_DEPARTURE_HOUR,
     PREFERENCE_DEFAULTS,
 )
 from .coordinator import EVCarbonCoordinator
@@ -68,7 +69,7 @@ class EvDepartureHourNumber(EVChargerBaseEntity, NumberEntity):
         self, coordinator: EVCarbonCoordinator, entry: ConfigEntry
     ) -> None:
         super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{entry.entry_id}_ev_departure_hour"
+        self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_DEPARTURE_HOUR}"
         self._attr_name = "EV Departure Hour"
 
     @property

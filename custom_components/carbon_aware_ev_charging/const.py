@@ -16,6 +16,9 @@ CONF_LED_LIGHT = "led_light"
 CONF_LED_EFFECT_SELECT = "led_effect_select"
 
 # ── Config entry keys (preferences — stored in entry.options) ─────────────────
+# NOTE: Some of these values also serve as entity unique_id suffixes for dynamic
+# entities (switches, fallback-window numbers).  Do not rename them without a
+# config-entry migration — see ENTITY_ID_* constants below for the full picture.
 CONF_CARBON_MODE = "carbon_mode"
 CONF_CHARGE_MODE = "charge_mode"
 CONF_DEPARTURE_HOUR = "departure_hour"
@@ -153,6 +156,22 @@ LED_COLOUR: dict[str, list[int]] = {
 # ── Persistent storage ────────────────────────────────────────────────────────
 STORAGE_KEY = f"{DOMAIN}.rolling_stats"
 STORAGE_VERSION = 1
+
+# ── Entity unique ID suffixes ─────────────────────────────────────────────────
+# Central registry — each value is appended to ``{entry.entry_id}_`` to form the
+# entity's unique_id.  NEVER change an existing value; doing so would orphan the
+# entity in HA and lose its history.  Dynamic entities (fallback-window numbers,
+# switches) use the corresponding CONF_* string as their suffix — those constants
+# are equally frozen for the same reason.
+ENTITY_ID_Z_SCORE = "co2_z_score"
+ENTITY_ID_CHARGING_STATUS = "ev_charging_status"
+ENTITY_ID_CHARGE_RATE_KW = "ev_charge_rate_kw"
+ENTITY_ID_CHARGE_CURRENT = "ev_charge_current"
+ENTITY_ID_CONNECTED = "ev_connected"
+ENTITY_ID_LOW_CARBON_NOW = "ev_low_carbon_now"
+ENTITY_ID_CHARGE_MODE = "ev_charge_mode"
+ENTITY_ID_CARBON_MODE = "ev_carbon_mode"
+ENTITY_ID_DEPARTURE_HOUR = "ev_departure_hour"
 
 # ── HA platform list ──────────────────────────────────────────────────────────
 PLATFORMS = ["sensor", "binary_sensor", "select", "number", "switch"]
