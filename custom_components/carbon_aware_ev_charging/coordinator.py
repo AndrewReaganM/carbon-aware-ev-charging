@@ -39,6 +39,7 @@ from .const import (
     CONF_NOTIFY_SERVICE,
     DEQUE_30D,
     DEQUE_7D,
+    DEPARTURE_PREP_HOURS,
     DOMAIN,
     FOSSIL_HARD_FLOOR,
     HYSTERESIS_SIGMA,
@@ -569,7 +570,11 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             (cfg.fb1_enabled and _in_hour_window(hour, cfg.fb1_start, cfg.fb1_end))
             or (cfg.fb2_enabled and _in_hour_window(hour, cfg.fb2_start, cfg.fb2_end))
         )
-        departure_prep = weekday in cfg.departure_days and hour >= cfg.departure_hour
+        departure_prep_start = (cfg.departure_hour - DEPARTURE_PREP_HOURS) % 24
+        departure_prep = (
+            weekday in cfg.departure_days
+            and _in_hour_window(hour, departure_prep_start, cfg.departure_hour)
+        )
 
         # ── Single decision chain ─────────────────────────────────────────
         # Compute the grid-level decision first (ignoring connection) so the
@@ -584,7 +589,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         elif carbon_good:
             status_enum = STATUS_LOW_CARBON
             status_reason = f"Charging — grid is clean ({stats.z_score}σ)"
-        elif sensors.carbon_data_unavailable and departure_prep:
+        elif departure_prep:
             day_name = _DAY_NAMES[weekday]
             status_enum = STATUS_DEPARTURE_PREP
             status_reason = (

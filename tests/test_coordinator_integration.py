@@ -796,3 +796,123 @@ async def test_fallback_window_2_activates(hass: HomeAssistant) -> None:
         data = await _run(coord)
 
     assert data.predicted_state == STATE_SCHEDULED
+
+
+# ── Departure prep bounded window ─────────────────────────────────────────────
+
+
+async def test_departure_prep_inside_window(hass: HomeAssistant) -> None:
+    """Unavailable data + Thu 03:00 with departure_hour=5 → departure_prep (window 02–05)."""
+    hass.states.async_set("sensor.co2", "unavailable")
+    hass.states.async_set("sensor.fossil", "unavailable")
+    hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
+
+    coord = _make_coord(hass, options_overrides={
+        CONF_DEPARTURE_HOUR: 5,
+        CONF_DEPARTURE_DAYS: ["3"],  # Thursday
+        CONF_FALLBACK_WINDOW_1_ENABLED: False,
+        CONF_FALLBACK_WINDOW_2_ENABLED: False,
+    })
+
+    # Thursday (weekday=3) 03:00 → inside prep window [02:00, 05:00)
+    fake_now = datetime(2026, 3, 19, 3, 0, tzinfo=timezone.utc)
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = fake_now
+        mock_dt.now.return_value = fake_now
+        data = await _run(coord)
+
+    assert data.predicted_state == STATE_SCHEDULED
+    assert data.status_enum == "departure_prep"
+
+
+async def test_departure_prep_outside_window(hass: HomeAssistant) -> None:
+    """Unavailable data + Thu 21:00 with departure_hour=5 → NOT departure_prep."""
+    hass.states.async_set("sensor.co2", "unavailable")
+    hass.states.async_set("sensor.fossil", "unavailable")
+    hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
+
+    coord = _make_coord(hass, options_overrides={
+        CONF_DEPARTURE_HOUR: 5,
+        CONF_DEPARTURE_DAYS: ["3"],  # Thursday
+        CONF_FALLBACK_WINDOW_1_ENABLED: False,
+        CONF_FALLBACK_WINDOW_2_ENABLED: False,
+    })
+
+    # Thursday (weekday=3) 21:00 → outside prep window [02:00, 05:00)
+    fake_now = datetime(2026, 3, 19, 21, 0, tzinfo=timezone.utc)
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = fake_now
+        mock_dt.now.return_value = fake_now
+        data = await _run(coord)
+
+    assert data.predicted_state == STATE_PAUSED
+
+
+async def test_departure_prep_at_departure_hour_not_active(hass: HomeAssistant) -> None:
+    """Departure hour itself is outside the prep window (end-exclusive)."""
+    hass.states.async_set("sensor.co2", "unavailable")
+    hass.states.async_set("sensor.fossil", "unavailable")
+    hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
+
+    coord = _make_coord(hass, options_overrides={
+        CONF_DEPARTURE_HOUR: 5,
+        CONF_DEPARTURE_DAYS: ["3"],
+        CONF_FALLBACK_WINDOW_1_ENABLED: False,
+        CONF_FALLBACK_WINDOW_2_ENABLED: False,
+    })
+
+    # Thursday 05:00 → at departure hour, window [02,05) is end-exclusive
+    fake_now = datetime(2026, 3, 19, 5, 0, tzinfo=timezone.utc)
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = fake_now
+        mock_dt.now.return_value = fake_now
+        data = await _run(coord)
+
+    assert data.predicted_state == STATE_PAUSED
+
+
+async def test_departure_prep_wrong_day(hass: HomeAssistant) -> None:
+    """Right hour but wrong day → no departure prep."""
+    hass.states.async_set("sensor.co2", "unavailable")
+    hass.states.async_set("sensor.fossil", "unavailable")
+    hass.states.async_set("switch.charger", "off", {"icon_name": "CarConnected"})
+
+    coord = _make_coord(hass, options_overrides={
+        CONF_DEPARTURE_HOUR: 5,
+        CONF_DEPARTURE_DAYS: ["3"],  # Thursday only
+        CONF_FALLBACK_WINDOW_1_ENABLED: False,
+        CONF_FALLBACK_WINDOW_2_ENABLED: False,
+    })
+
+    # Monday (weekday=0) 03:00 → right hour window, wrong day
+    fake_now = datetime(2026, 3, 16, 3, 0, tzinfo=timezone.utc)
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = fake_now
+        mock_dt.now.return_value = fake_now
+        data = await _run(coord)
+
+    assert data.predicted_state == STATE_PAUSED
+
+
+async def test_departure_prep_dirty_grid_still_charges(hass: HomeAssistant) -> None:
+    """Dirty grid during prep window → departure_prep overrides grid_dirty."""
+    # High CO2 + high fossil → carbon_good=False, data IS available
+    _set_states(hass, co2="500", fossil="80", charger_attrs={"icon_name": "CarConnected"})
+
+    coord = _make_coord(hass, options_overrides={
+        CONF_DEPARTURE_HOUR: 5,
+        CONF_DEPARTURE_DAYS: ["3"],  # Thursday
+        CONF_FALLBACK_WINDOW_1_ENABLED: False,
+        CONF_FALLBACK_WINDOW_2_ENABLED: False,
+    })
+
+    # Thursday 03:00 → inside prep window, grid is dirty but prep wins
+    fake_now = datetime(2026, 3, 19, 3, 0, tzinfo=timezone.utc)
+    with patch("custom_components.carbon_aware_ev_charging.coordinator.dt_util") as mock_dt:
+        mock_dt.utcnow.return_value = fake_now
+        mock_dt.now.return_value = fake_now
+        data = await _run(coord)
+
+    assert data.predicted_state == STATE_SCHEDULED
+    assert data.status_enum == "departure_prep"
+    assert data.should_charge is True

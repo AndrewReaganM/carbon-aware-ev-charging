@@ -172,7 +172,9 @@ class TestPredictedState:
             return STATE_OVERRIDE
         if carbon_good:
             return STATE_CARBON
-        if carbon_data_unavailable and (fallback_window or departure_prep):
+        if departure_prep:
+            return STATE_SCHEDULED
+        if carbon_data_unavailable and fallback_window:
             return STATE_SCHEDULED
         return STATE_PAUSED
 
@@ -201,6 +203,12 @@ class TestPredictedState:
 
     def test_paused_when_data_unavailable_but_no_window(self):
         assert self._predict(carbon_data_unavailable=True, fallback_window=False, departure_prep=False) == STATE_PAUSED
+
+    def test_departure_prep_beats_dirty_grid(self):
+        """Departure prep fires even when data is available (grid dirty)."""
+        assert self._predict(
+            carbon_good=False, carbon_data_unavailable=False, departure_prep=True,
+        ) == STATE_SCHEDULED
 
 
 # ── Reload spike guard (integration-level) ────────────────────────────────────

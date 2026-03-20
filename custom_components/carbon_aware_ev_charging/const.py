@@ -63,6 +63,9 @@ MIN_DWELL_MINUTES = 15
 # Minimum cooldown after turning off before turning back on (minutes)
 MIN_COOLDOWN_MINUTES = 10
 
+# Hours before departure to begin prep charging (bounded window)
+DEPARTURE_PREP_HOURS = 3
+
 # Sensor staleness thresholds
 # Soft stale: log warning, flag in UI, but still use data for carbon gate
 STALE_DATA_MINUTES = 30
