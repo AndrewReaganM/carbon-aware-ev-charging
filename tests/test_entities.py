@@ -426,3 +426,58 @@ async def test_departure_hour_set_value() -> None:
     update_call = number.hass.config_entries.async_update_entry.call_args
     assert update_call.kwargs["options"][CONF_DEPARTURE_HOUR] == 8
     coord.async_request_refresh.assert_called_once()
+
+
+# ── EvOptionSwitch (dry-run) ───────────────────────────────────────────────────
+
+from custom_components.carbon_aware_ev_charging.const import CONF_DRY_RUN
+from custom_components.carbon_aware_ev_charging.switch import EvOptionSwitch
+
+
+def test_dry_run_switch_default_off() -> None:
+    """Default preference is False → switch is off."""
+    switch = EvOptionSwitch(
+        _coord(EVCarbonData()), _entry(), key=CONF_DRY_RUN, name="EV Dry Run", icon="mdi:test-tube"
+    )
+    assert switch.is_on is False
+
+
+def test_dry_run_switch_on_from_options() -> None:
+    """When options has dry_run=True → switch is on."""
+    switch = EvOptionSwitch(
+        _coord(EVCarbonData()), _entry({CONF_DRY_RUN: True}),
+        key=CONF_DRY_RUN, name="EV Dry Run", icon="mdi:test-tube",
+    )
+    assert switch.is_on is True
+
+
+async def test_dry_run_switch_turn_on() -> None:
+    """Turning on writes dry_run=True to options and refreshes the coordinator."""
+    coord = _coord(EVCarbonData())
+    entry = _entry({CONF_DRY_RUN: False})
+    switch = EvOptionSwitch(coord, entry, key=CONF_DRY_RUN, name="EV Dry Run", icon="mdi:test-tube")
+    switch.hass = MagicMock()
+    switch.hass.config_entries.async_update_entry = MagicMock()
+    switch.async_write_ha_state = MagicMock()
+
+    await switch.async_turn_on()
+
+    update_call = switch.hass.config_entries.async_update_entry.call_args
+    assert update_call.kwargs["options"][CONF_DRY_RUN] is True
+    coord.async_request_refresh.assert_called_once()
+
+
+async def test_dry_run_switch_turn_off() -> None:
+    """Turning off writes dry_run=False to options and refreshes the coordinator."""
+    coord = _coord(EVCarbonData())
+    entry = _entry({CONF_DRY_RUN: True})
+    switch = EvOptionSwitch(coord, entry, key=CONF_DRY_RUN, name="EV Dry Run", icon="mdi:test-tube")
+    switch.hass = MagicMock()
+    switch.hass.config_entries.async_update_entry = MagicMock()
+    switch.async_write_ha_state = MagicMock()
+
+    await switch.async_turn_off()
+
+    update_call = switch.hass.config_entries.async_update_entry.call_args
+    assert update_call.kwargs["options"][CONF_DRY_RUN] is False
+    coord.async_request_refresh.assert_called_once()

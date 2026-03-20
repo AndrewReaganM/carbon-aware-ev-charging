@@ -10,6 +10,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .base_entity import EVChargerBaseEntity
 from .const import (
+    CONF_DRY_RUN,
     CONF_FALLBACK_WINDOW_1_ENABLED,
     CONF_FALLBACK_WINDOW_2_ENABLED,
     DOMAIN,
@@ -37,11 +38,46 @@ async def async_setup_entry(
             name="EV Fallback Window 2 Enabled",
             icon="mdi:weather-sunny",
         ),
+        EvOptionSwitch(
+            coordinator, entry,
+            key=CONF_DRY_RUN,
+            name="EV Dry Run",
+            icon="mdi:test-tube",
+        ),
     ])
 
 
 class EvFallbackWindowSwitch(EVChargerBaseEntity, SwitchEntity):
     """Toggle to enable/disable a fallback charging window."""
+
+    def __init__(
+        self,
+        coordinator: EVCarbonCoordinator,
+        entry: ConfigEntry,
+        *,
+        key: str,
+        name: str,
+        icon: str,
+    ) -> None:
+        super().__init__(coordinator, entry)
+        self._key = key
+        self._attr_unique_id = f"{entry.entry_id}_{key}"
+        self._attr_name = name
+        self._attr_icon = icon
+
+    @property
+    def is_on(self) -> bool:
+        return bool(self._entry.options.get(self._key, PREFERENCE_DEFAULTS[self._key]))
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self._async_update_option(self._key, True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self._async_update_option(self._key, False)
+
+
+class EvOptionSwitch(EVChargerBaseEntity, SwitchEntity):
+    """Toggle for a boolean preference (e.g. dry-run)."""
 
     def __init__(
         self,
