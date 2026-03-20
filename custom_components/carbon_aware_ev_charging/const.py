@@ -119,6 +119,23 @@ CHARGING_STATUSES: list[str] = [
     STATUS_UNKNOWN,
 ]
 
+# Maps status_enum → (predicted_state, chargeable).  Single source of truth so
+# the decision chain and the state/chargeability derivation can never diverge.
+STATUS_MAP: dict[str, tuple[str, bool]] = {
+    STATUS_NOT_CONNECTED: (STATE_PAUSED, False),
+    STATUS_FORCED_OFF: (STATE_PAUSED, False),
+    STATUS_OVERRIDE: (STATE_OVERRIDE, True),
+    STATUS_LOW_CARBON: (STATE_CARBON, True),
+    STATUS_DEPARTURE_PREP: (STATE_SCHEDULED, True),
+    STATUS_FALLBACK: (STATE_SCHEDULED, True),
+    STATUS_DATA_STALE: (STATE_PAUSED, False),
+    STATUS_WAITING_FOR_DATA: (STATE_PAUSED, False),
+    STATUS_FOSSIL_HIGH: (STATE_PAUSED, False),
+    STATUS_GRID_DIRTY: (STATE_PAUSED, False),
+    STATUS_UNAVAILABLE: (STATE_PAUSED, False),
+    STATUS_UNKNOWN: (STATE_PAUSED, False),
+}
+
 # ── LED HS colours per state ──────────────────────────────────────────────────
 LED_COLOUR: dict[str, list[int]] = {
     STATE_CARBON: [120, 80],

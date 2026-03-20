@@ -76,6 +76,7 @@ def _make_coordinator(
     coord._last_z_score = None  # type: ignore[reportPrivateUsage]
     coord._was_connected = False  # type: ignore[reportPrivateUsage]
     coord._stale_hard_count = 0  # type: ignore[reportPrivateUsage]
+    coord._last_led_state = None  # type: ignore[reportPrivateUsage]
     coord.last_update_success = True
     return coord
 

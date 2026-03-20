@@ -89,6 +89,7 @@ def _make_coord(
     coord._last_z_score = None
     coord._was_connected = False
     coord._stale_hard_count = 0
+    coord._last_led_state = None
     coord.last_update_success = True
     return coord
 
@@ -331,6 +332,31 @@ async def test_led_called_with_correct_colour(hass: HomeAssistant) -> None:
     effect_calls = [c for c in svc.call_args_list if c.args[0] == "select"]
     assert len(effect_calls) == 1
     assert effect_calls[0].args[2]["option"] == "Middle Rising"
+
+
+async def test_led_shows_grid_state_when_disconnected(hass: HomeAssistant) -> None:
+    """LED colour reflects grid decision even when car is not plugged in."""
+    _set_states(hass, co2="150", fossil="20", charger_attrs={"icon_name": "CarNotConnected"})
+    hass.states.async_set("light.led", "off")
+    hass.states.async_set("select.led_effect", "Slow Blink")
+
+    coord = _make_coord(
+        hass,
+        data_overrides={CONF_LED_LIGHT: "light.led", CONF_LED_EFFECT_SELECT: "select.led_effect"},
+    )
+
+    svc = _mock_services(coord, hass)
+    await _run(coord)
+
+    # Colour: green — grid is clean (what WOULD happen if plugged in)
+    light_calls = [c for c in svc.call_args_list if c.args[0] == "light"]
+    assert len(light_calls) == 1
+    assert light_calls[0].args[2]["hs_color"] == [120, 80]  # green
+
+    # Effect: Slow Blink — car not connected
+    effect_calls = [c for c in svc.call_args_list if c.args[0] == "select"]
+    assert len(effect_calls) == 1
+    assert effect_calls[0].args[2]["option"] == "Slow Blink"
 
 
 async def test_warmup_z_score_is_none(hass: HomeAssistant) -> None:

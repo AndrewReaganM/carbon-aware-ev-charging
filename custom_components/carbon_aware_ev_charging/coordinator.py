@@ -17,7 +17,6 @@ from homeassistant.util import dt as dt_util
 from .const import (
     CHARGE_MODE_FORCE_OFF,
     CHARGE_MODE_FORCE_ON,
-    CHARGEABLE_STATES,
     CONF_CARBON_MODE,
     CONF_CHARGE_MODE,
     CONF_CHARGER_CONNECTED_ATTR,
@@ -54,6 +53,17 @@ from .const import (
     STATE_OVERRIDE,
     STATE_PAUSED,
     STATE_SCHEDULED,
+    STATUS_DATA_STALE,
+    STATUS_DEPARTURE_PREP,
+    STATUS_FALLBACK,
+    STATUS_FORCED_OFF,
+    STATUS_FOSSIL_HIGH,
+    STATUS_GRID_DIRTY,
+    STATUS_LOW_CARBON,
+    STATUS_MAP,
+    STATUS_NOT_CONNECTED,
+    STATUS_OVERRIDE,
+    STATUS_WAITING_FOR_DATA,
     STORAGE_KEY,
     STORAGE_VERSION,
     THRESHOLDS,
@@ -164,12 +174,9 @@ class _ChargingDecision:
     predicted_state: str
     should_charge: bool
     carbon_good: bool
-    fallback_window: bool
-    departure_prep: bool
     status_enum: str
     status_reason: str
-    min_dwell_met: bool
-    cooldown_met: bool
+    led_state: str  # predicted_state ignoring connection (for LED colour)
 
 
 class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
@@ -191,6 +198,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         self._last_z_score: float | None = None
         self._was_connected: bool = False
         self._stale_hard_count: int = 0
+        self._last_led_state: tuple[str, bool] | None = None
 
     async def async_config_entry_first_refresh(self) -> None:
         """Load persisted rolling history before first poll, then refresh."""
@@ -300,17 +308,17 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         await self._control_devices(cfg, sensors, decision, stats)
 
         _LOGGER.info(
-            "[EV] predicted=%s should_charge=%s mode=%s car=%s carbon=%s "
-            "z_score=%s fallback=%s departure=%s unavailable=%s dry_run=%s",
+            "[EV] status=%s predicted=%s should_charge=%s mode=%s car=%s "
+            "carbon=%s z_score=%s unavailable=%s stale=%s dry_run=%s",
+            decision.status_enum,
             decision.predicted_state,
             decision.should_charge,
             cfg.charge_mode,
             sensors.is_connected,
             decision.carbon_good,
             stats.z_score,
-            decision.fallback_window,
-            decision.departure_prep,
             sensors.carbon_data_unavailable,
+            sensors.data_stale,
             cfg.dry_run,
         )
 
@@ -539,7 +547,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         sensors: _SensorReadings,
         stats: _Statistics,
     ) -> _ChargingDecision:
-        """Determine predicted_state, should_charge, and timing guards."""
+        """Determine status_enum; derive predicted_state and should_charge."""
         # Carbon gate (with hysteresis)
         threshold = THRESHOLDS[cfg.carbon_mode]
         effective_threshold = (
@@ -553,7 +561,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             and sensors.fossil_pct < FOSSIL_HARD_FLOOR
         )
 
-        # Fallback / departure windows
+        # Time windows
         now = dt_util.now()
         hour = now.hour
         weekday = now.weekday()
@@ -563,96 +571,60 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         )
         departure_prep = weekday in cfg.departure_days and hour >= cfg.departure_hour
 
-        # Predicted state
+        # ── Single decision chain ─────────────────────────────────────────
+        # Compute the grid-level decision first (ignoring connection) so the
+        # LED can always show what WOULD happen if the car were plugged in.
+        # Then overlay the connection check for the actual status.
         if cfg.charge_mode == CHARGE_MODE_FORCE_OFF:
-            predicted_state = STATE_PAUSED
-        elif cfg.charge_mode == CHARGE_MODE_FORCE_ON:
-            predicted_state = STATE_OVERRIDE
-        elif carbon_good:
-            predicted_state = STATE_CARBON
-        elif sensors.carbon_data_unavailable and (fallback_window or departure_prep):
-            predicted_state = STATE_SCHEDULED
-        else:
-            predicted_state = STATE_PAUSED
-
-        should_charge = predicted_state in CHARGEABLE_STATES and sensors.is_connected
-
-        # Human-readable status reason
-        if not sensors.is_connected:
-            status_enum = "not_connected"
-            status_reason = "Not connected"
-        elif cfg.charge_mode == CHARGE_MODE_FORCE_OFF:
-            status_enum = "forced_off"
+            status_enum = STATUS_FORCED_OFF
             status_reason = "Paused — forced off"
         elif cfg.charge_mode == CHARGE_MODE_FORCE_ON:
-            status_enum = "override"
+            status_enum = STATUS_OVERRIDE
             status_reason = "Charging — forced on"
         elif carbon_good:
-            status_enum = "low_carbon"
+            status_enum = STATUS_LOW_CARBON
             status_reason = f"Charging — grid is clean ({stats.z_score}σ)"
         elif sensors.carbon_data_unavailable and departure_prep:
             day_name = _DAY_NAMES[weekday]
-            status_enum = "departure_prep"
+            status_enum = STATUS_DEPARTURE_PREP
             status_reason = (
                 f"Charging — departure prep {day_name} {cfg.departure_hour:02d}:00"
             )
         elif sensors.carbon_data_unavailable and fallback_window:
-            status_enum = "fallback"
+            status_enum = STATUS_FALLBACK
             status_reason = "Charging — fallback window"
         elif sensors.carbon_data_unavailable and sensors.data_stale:
-            status_enum = "data_stale"
+            status_enum = STATUS_DATA_STALE
             status_reason = "Paused — sensor data is stale"
         elif sensors.carbon_data_unavailable:
-            status_enum = "waiting_for_data"
+            status_enum = STATUS_WAITING_FOR_DATA
             status_reason = "Paused — waiting for data"
         elif sensors.fossil_pct is not None and sensors.fossil_pct >= FOSSIL_HARD_FLOOR:
-            status_enum = "fossil_high"
+            status_enum = STATUS_FOSSIL_HIGH
             status_reason = f"Paused — fossil fuel too high ({round(sensors.fossil_pct)}%)"
         else:
-            status_enum = "grid_dirty"
+            status_enum = STATUS_GRID_DIRTY
             status_reason = f"Paused — grid too dirty ({stats.z_score}σ)"
 
-        # Min dwell (prevents turn-off within 15 min of turn-on)
-        min_dwell_met = True
-        if sensors.charger_is_on and not should_charge and sensors.charger_state is not None:
-            elapsed_min = (
-                dt_util.utcnow() - sensors.charger_state.last_changed
-            ).total_seconds() / 60
-            min_dwell_met = elapsed_min >= MIN_DWELL_MINUTES or not sensors.is_connected
+        # LED state reflects the grid decision (what would happen if plugged in)
+        led_state, _ = STATUS_MAP[status_enum]
 
-        # Min cooldown (prevents turn-on shortly after turn-off)
-        just_reconnected = sensors.is_connected and not self._was_connected
-        self._was_connected = sensors.is_connected
+        # Override for connection status
+        if not sensors.is_connected:
+            status_enum = STATUS_NOT_CONNECTED
+            status_reason = "Not connected"
 
-        cooldown_met = True
-        if (
-            not sensors.charger_is_on
-            and should_charge
-            and sensors.charger_state is not None
-            and cfg.charge_mode != CHARGE_MODE_FORCE_ON
-            and not just_reconnected
-        ):
-            off_elapsed_min = (
-                dt_util.utcnow() - sensors.charger_state.last_changed
-            ).total_seconds() / 60
-            cooldown_met = off_elapsed_min >= MIN_COOLDOWN_MINUTES
-            if not cooldown_met:
-                _LOGGER.debug(
-                    "[EV] Cooldown active: charger off for %.1f min, need %d min",
-                    off_elapsed_min,
-                    MIN_COOLDOWN_MINUTES,
-                )
+        # Derive everything else from the authoritative status
+        predicted_state, chargeable = STATUS_MAP[status_enum]
+        should_charge = chargeable and sensors.is_connected
 
         return _ChargingDecision(
             predicted_state=predicted_state,
             should_charge=should_charge,
             carbon_good=carbon_good,
-            fallback_window=fallback_window,
-            departure_prep=departure_prep,
             status_enum=status_enum,
             status_reason=status_reason,
-            min_dwell_met=min_dwell_met,
-            cooldown_met=cooldown_met,
+            led_state=led_state,
         )
 
     async def _control_devices(
@@ -663,53 +635,96 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         stats: _Statistics,
     ) -> None:
         """Control charger switch, LED indicator, and send notifications."""
+        want_on = decision.should_charge
+        is_on = sensors.charger_is_on
+
+        # ── Charger switch ────────────────────────────────────────────────
         if not cfg.dry_run:
-            if decision.should_charge and not sensors.charger_is_on and decision.cooldown_met:
-                await self.hass.services.async_call(
-                    "switch",
-                    "turn_on",
-                    {"entity_id": cfg.charger_entity},
-                    blocking=False,
-                )
-                if cfg.notify_service:
-                    await self._async_notify(
-                        cfg.notify_service,
-                        "🌿 EV Low-Carbon Charging Started",
-                        f"{decision.predicted_state.title()} mode — Z-score {stats.z_score}σ, "
-                        f"{round(sensors.fossil_pct or 0)}% fossil",
+            if want_on and not is_on:
+                # Cooldown: prevent turn-on shortly after turn-off
+                just_reconnected = sensors.is_connected and not self._was_connected
+                cooldown_met = True
+                if (
+                    sensors.charger_state is not None
+                    and cfg.charge_mode != CHARGE_MODE_FORCE_ON
+                    and not just_reconnected
+                ):
+                    off_elapsed_min = (
+                        dt_util.utcnow() - sensors.charger_state.last_changed
+                    ).total_seconds() / 60
+                    cooldown_met = off_elapsed_min >= MIN_COOLDOWN_MINUTES
+                    if not cooldown_met:
+                        _LOGGER.debug(
+                            "[EV] Cooldown active: charger off for %.1f min, need %d min",
+                            off_elapsed_min,
+                            MIN_COOLDOWN_MINUTES,
+                        )
+
+                if cooldown_met:
+                    await self.hass.services.async_call(
+                        "switch",
+                        "turn_on",
+                        {"entity_id": cfg.charger_entity},
+                        blocking=False,
                     )
-            elif not decision.should_charge and sensors.charger_is_on and decision.min_dwell_met:
-                await self.hass.services.async_call(
-                    "switch",
-                    "turn_off",
-                    {"entity_id": cfg.charger_entity},
-                    blocking=False,
-                )
-                if cfg.notify_service:
-                    await self._async_notify(
-                        cfg.notify_service,
-                        "⏸ EV Charging Paused",
-                        f"Grid too dirty for {cfg.carbon_mode} mode. "
-                        f"Z-score {stats.z_score}σ, {round(sensors.fossil_pct or 0)}% fossil.",
+                    if cfg.notify_service:
+                        await self._async_notify(
+                            cfg.notify_service,
+                            "🌿 EV Low-Carbon Charging Started",
+                            f"{decision.predicted_state.title()} mode — Z-score {stats.z_score}σ, "
+                            f"{round(sensors.fossil_pct or 0)}% fossil",
+                        )
+            elif not want_on and is_on:
+                # Dwell: prevent turn-off within MIN_DWELL_MINUTES of turn-on
+                min_dwell_met = True
+                if sensors.charger_state is not None:
+                    elapsed_min = (
+                        dt_util.utcnow() - sensors.charger_state.last_changed
+                    ).total_seconds() / 60
+                    min_dwell_met = (
+                        elapsed_min >= MIN_DWELL_MINUTES or not sensors.is_connected
                     )
 
-        # LED indicator
-        if cfg.led_light:
-            hs_colour = LED_COLOUR.get(decision.predicted_state, [0, 100])
-            await self.hass.services.async_call(
-                "light",
-                "turn_on",
-                {"entity_id": cfg.led_light, "brightness": 128, "hs_color": hs_colour},
-                blocking=False,
-            )
-        if cfg.led_effect_select:
-            effect = "Middle Rising" if decision.should_charge else "Slow Blink"
-            await self.hass.services.async_call(
-                "select",
-                "select_option",
-                {"entity_id": cfg.led_effect_select, "option": effect},
-                blocking=False,
-            )
+                if min_dwell_met:
+                    await self.hass.services.async_call(
+                        "switch",
+                        "turn_off",
+                        {"entity_id": cfg.charger_entity},
+                        blocking=False,
+                    )
+                    if cfg.notify_service:
+                        await self._async_notify(
+                            cfg.notify_service,
+                            "⏸ EV Charging Paused",
+                            f"Grid too dirty for {cfg.carbon_mode} mode. "
+                            f"Z-score {stats.z_score}σ, {round(sensors.fossil_pct or 0)}% fossil.",
+                        )
+
+        # Track connection state for reconnect detection (always, even in dry-run)
+        self._was_connected = sensors.is_connected
+
+        # ── LED indicator (idempotent — only write on state change) ───────
+        # Colour reflects what WOULD happen if the car were plugged in;
+        # effect distinguishes connected (flowing) vs disconnected (flashing).
+        led_key = (decision.led_state, sensors.is_connected)
+        if led_key != self._last_led_state:
+            if cfg.led_light:
+                hs_colour = LED_COLOUR.get(decision.led_state, [0, 100])
+                await self.hass.services.async_call(
+                    "light",
+                    "turn_on",
+                    {"entity_id": cfg.led_light, "brightness": 128, "hs_color": hs_colour},
+                    blocking=False,
+                )
+            if cfg.led_effect_select:
+                effect = "Middle Rising" if sensors.is_connected else "Slow Blink"
+                await self.hass.services.async_call(
+                    "select",
+                    "select_option",
+                    {"entity_id": cfg.led_effect_select, "option": effect},
+                    blocking=False,
+                )
+            self._last_led_state = led_key
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
