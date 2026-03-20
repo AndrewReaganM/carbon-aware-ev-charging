@@ -60,7 +60,7 @@ class EvLowCarbonNowBinarySensor(EVChargerBaseEntity, BinarySensorEntity):
         self._attr_name = "EV Low Carbon Now"
 
     @property
-    def available(self) -> bool:  # type: ignore[override]
+    def available(self) -> bool:
         # Always available — returns False during warmup instead of unavailable.
         return True
 

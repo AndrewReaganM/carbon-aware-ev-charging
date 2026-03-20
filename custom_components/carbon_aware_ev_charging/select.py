@@ -47,7 +47,7 @@ class EvChargeModeSelect(EVChargerBaseEntity, SelectEntity):
         self._attr_name = "EV Charge Mode"
 
     @property
-    def current_option(self) -> str:  # type: ignore[override]
+    def current_option(self) -> str:
         return self._entry.options.get(CONF_CHARGE_MODE, PREFERENCE_DEFAULTS[CONF_CHARGE_MODE])
 
     async def async_select_option(self, option: str) -> None:
@@ -66,7 +66,7 @@ class EvCarbonModeSelect(EVChargerBaseEntity, SelectEntity):
         self._attr_name = "EV Carbon Sensitivity"
 
     @property
-    def current_option(self) -> str:  # type: ignore[override]
+    def current_option(self) -> str:
         return self._entry.options.get(CONF_CARBON_MODE, PREFERENCE_DEFAULTS[CONF_CARBON_MODE])
 
     async def async_select_option(self, option: str) -> None:

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from homeassistant.helpers.selector import SelectOptionDict
+
 DOMAIN = "carbon_aware_ev_charging"
 
 # ── Config entry keys (entity IDs — stored in entry.data) ────────────────────
@@ -178,14 +180,14 @@ ENTITY_ID_DEPARTURE_HOUR = "ev_departure_hour"
 PLATFORMS = ["sensor", "binary_sensor", "select", "number", "switch"]
 
 # ── Day-of-week options for selectors ─────────────────────────────────────────
-DAY_OPTIONS: list[dict[str, str]] = [
-    {"value": "0", "label": "Monday"},
-    {"value": "1", "label": "Tuesday"},
-    {"value": "2", "label": "Wednesday"},
-    {"value": "3", "label": "Thursday"},
-    {"value": "4", "label": "Friday"},
-    {"value": "5", "label": "Saturday"},
-    {"value": "6", "label": "Sunday"},
+DAY_OPTIONS: list[SelectOptionDict] = [
+    SelectOptionDict(value="0", label="Monday"),
+    SelectOptionDict(value="1", label="Tuesday"),
+    SelectOptionDict(value="2", label="Wednesday"),
+    SelectOptionDict(value="3", label="Thursday"),
+    SelectOptionDict(value="4", label="Friday"),
+    SelectOptionDict(value="5", label="Saturday"),
+    SelectOptionDict(value="6", label="Sunday"),
 ]
 
 # ── Preference defaults (options that are user-configurable) ──────────────────

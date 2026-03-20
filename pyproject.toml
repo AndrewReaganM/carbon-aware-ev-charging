@@ -23,6 +23,7 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "pytest-homeassistant-custom-component>=0.13.195",
     "ruff>=0.15.7",
+    "ty>=0.0.24",
 ]
 
 [tool.ruff]
@@ -66,3 +67,16 @@ known-first-party = ["custom_components.carbon_aware_ev_charging"]
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.rules]
+unused-type-ignore-comment = "warn"
+
+# Tests monkeypatch HA internals (State.last_updated, async_write_ha_state, etc.)
+# These are safe patterns that produce false-positive invalid-assignment errors.
+[[tool.ty.overrides]]
+include = ["tests/**"]
+[tool.ty.overrides.rules]
+invalid-assignment = "ignore"

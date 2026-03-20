@@ -78,7 +78,7 @@ class EvDepartureHourNumber(EVChargerBaseEntity, NumberEntity):
         self._attr_name = "EV Departure Hour"
 
     @property
-    def native_value(self) -> float:  # type: ignore[override]
+    def native_value(self) -> float:
         return float(
             self._entry.options.get(CONF_DEPARTURE_HOUR, PREFERENCE_DEFAULTS[CONF_DEPARTURE_HOUR])
         )
@@ -112,7 +112,7 @@ class EvFallbackWindowNumber(EVChargerBaseEntity, NumberEntity):
         self._attr_icon = icon
 
     @property
-    def native_value(self) -> float:  # type: ignore[override]
+    def native_value(self) -> float:
         return float(self._entry.options.get(self._key, PREFERENCE_DEFAULTS[self._key]))
 
     async def async_set_native_value(self, value: float) -> None:

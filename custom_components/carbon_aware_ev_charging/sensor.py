@@ -55,7 +55,7 @@ class EvZScoreSensor(EVChargerBaseEntity, SensorEntity):
         return self._data.z_score
 
     @property
-    def available(self) -> bool:  # type: ignore[override]
+    def available(self) -> bool:
         return self.coordinator.last_update_success and self._data.z_score is not None
 
     @property
@@ -88,7 +88,7 @@ class EvChargingStatusSensor(EVChargerBaseEntity, SensorEntity):
         return self._data.status_enum
 
     @property
-    def available(self) -> bool:  # type: ignore[override]
+    def available(self) -> bool:
         return True
 
     @property
@@ -121,7 +121,7 @@ class EvChargeRateKwSensor(EVChargerBaseEntity, SensorEntity):
         return self._data.charge_rate_kw
 
     @property
-    def available(self) -> bool:  # type: ignore[override]
+    def available(self) -> bool:
         return self.coordinator.last_update_success and self._data.charge_rate_kw is not None
 
 
@@ -143,5 +143,5 @@ class EvChargeCurrentSensor(EVChargerBaseEntity, SensorEntity):
         return self._data.charge_current_a
 
     @property
-    def available(self) -> bool:  # type: ignore[override]
+    def available(self) -> bool:
         return self.coordinator.last_update_success and self._data.charge_current_a is not None

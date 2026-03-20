@@ -70,12 +70,12 @@ def _make_coordinator(
     coord.hass = hass
     coord.entry = entry
     coord.logger = MagicMock()
-    coord._deque_7d = deque(maxlen=DEQUE_7D)  # type: ignore[reportPrivateUsage]
-    coord._deque_30d = deque(maxlen=DEQUE_7D)  # type: ignore[reportPrivateUsage]
-    coord._last_z_score = None  # type: ignore[reportPrivateUsage]
-    coord._was_connected = False  # type: ignore[reportPrivateUsage]
-    coord._stale_hard_count = 0  # type: ignore[reportPrivateUsage]
-    coord._last_led_state = None  # type: ignore[reportPrivateUsage]
+    coord._deque_7d = deque(maxlen=DEQUE_7D)
+    coord._deque_30d = deque(maxlen=DEQUE_7D)
+    coord._last_z_score = None
+    coord._was_connected = False
+    coord._stale_hard_count = 0
+    coord._last_led_state = None
     coord.last_update_success = True
     return coord
 

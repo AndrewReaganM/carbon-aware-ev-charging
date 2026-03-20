@@ -8,16 +8,16 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
-    BooleanSelector,  # type: ignore[reportUnknownVariableType]
-    EntitySelector,  # type: ignore[reportUnknownVariableType]
+    BooleanSelector,
+    EntitySelector,
     EntitySelectorConfig,
-    NumberSelector,  # type: ignore[reportUnknownVariableType]
+    NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
-    SelectSelector,  # type: ignore[reportUnknownVariableType]
+    SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
-    TextSelector,  # type: ignore[reportUnknownVariableType]
+    TextSelector,
     TextSelectorConfig,
     TextSelectorType,
 )

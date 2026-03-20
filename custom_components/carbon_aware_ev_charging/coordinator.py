@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.exceptions import ServiceNotFound
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.issue_registry import (
@@ -222,7 +222,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         ]
 
         @callback
-        def _on_state_change(event: Event) -> None:
+        def _on_state_change(event: Event[EventStateChangedData]) -> None:
             """Request a coordinator refresh when a monitored entity changes."""
             _LOGGER.debug(
                 "[EV] Reactive refresh triggered by %s",

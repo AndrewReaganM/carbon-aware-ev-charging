@@ -101,7 +101,9 @@ async def test_invalid_co2_sensor_shows_error(hass: HomeAssistant) -> None:
         },
     )
     assert result["type"] == FlowResultType.FORM
-    assert result["errors"].get(CONF_CO2_SENSOR) == "entity_not_found"
+    errors = result["errors"]
+    assert errors is not None
+    assert errors.get(CONF_CO2_SENSOR) == "entity_not_found"
 
 
 async def test_invalid_notify_service_shows_error(hass: HomeAssistant) -> None:
@@ -122,7 +124,9 @@ async def test_invalid_notify_service_shows_error(hass: HomeAssistant) -> None:
             {**VALID_STEP3, CONF_NOTIFY_SERVICE: "mobile_app_my_phone"},  # missing prefix
         )
         assert result["type"] == FlowResultType.FORM
-        assert result["errors"].get(CONF_NOTIFY_SERVICE) == "invalid_notify_service"
+        errors = result["errors"]
+        assert errors is not None
+        assert errors.get(CONF_NOTIFY_SERVICE) == "invalid_notify_service"
 
 
 # ── Options flow ───────────────────────────────────────────────────────────────
