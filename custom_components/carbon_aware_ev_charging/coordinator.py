@@ -48,6 +48,8 @@ from .const import (
     MIN_DWELL_MINUTES,
     PREFERENCE_DEFAULTS,
     STALE_DATA_MINUTES,
+    STALE_HARD_CONSECUTIVE,
+    STALE_HARD_MINUTES,
     STATE_CARBON,
     STATE_OVERRIDE,
     STATE_PAUSED,
@@ -188,6 +190,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         self._deque_30d: deque[tuple[float, float]] = deque(maxlen=DEQUE_30D)
         self._last_z_score: float | None = None
         self._was_connected: bool = False
+        self._stale_hard_count: int = 0
 
     async def async_config_entry_first_refresh(self) -> None:
         """Load persisted rolling history before first poll, then refresh."""
@@ -403,23 +406,40 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         if co2 is None or fossil_pct is None:
             carbon_data_unavailable = True
 
-        # Staleness check
+        # Tiered staleness check
         data_stale = False
-        stale_threshold = dt_util.utcnow() - timedelta(minutes=STALE_DATA_MINUTES)
+        hard_stale = False
+        soft_threshold = dt_util.utcnow() - timedelta(minutes=STALE_DATA_MINUTES)
+        hard_threshold = dt_util.utcnow() - timedelta(minutes=STALE_HARD_MINUTES)
         for _entity, _state in (
             (cfg.co2_entity, co2_state),
             (cfg.fossil_entity, fossil_state),
         ):
             if _state is not None and _state.state not in _UNAVAILABLE_STATES:
-                if _state.last_updated < stale_threshold:
+                if _state.last_updated < hard_threshold:
                     _LOGGER.warning(
-                        "[EV] Sensor %s is stale (last_updated=%s, threshold=%s)",
+                        "[EV] Sensor %s is hard-stale (last_updated=%s)",
                         _entity,
                         _state.last_updated.isoformat(),
-                        stale_threshold.isoformat(),
                     )
                     data_stale = True
-                    carbon_data_unavailable = True
+                    hard_stale = True
+                elif _state.last_updated < soft_threshold:
+                    _LOGGER.warning(
+                        "[EV] Sensor %s is soft-stale (last_updated=%s)",
+                        _entity,
+                        _state.last_updated.isoformat(),
+                    )
+                    data_stale = True
+
+        # Hard unavailable requires N consecutive hard-stale polls
+        if hard_stale:
+            self._stale_hard_count += 1
+        else:
+            self._stale_hard_count = 0
+
+        if self._stale_hard_count >= STALE_HARD_CONSECUTIVE:
+            carbon_data_unavailable = True
 
         is_connected = False
         if charger_state:

@@ -63,8 +63,12 @@ MIN_DWELL_MINUTES = 15
 # Minimum cooldown after turning off before turning back on (minutes)
 MIN_COOLDOWN_MINUTES = 10
 
-# Sensor staleness threshold — treat data as unavailable after this many minutes
+# Sensor staleness thresholds
+# Soft stale: log warning, flag in UI, but still use data for carbon gate
 STALE_DATA_MINUTES = 30
+# Hard unavailable: after this many minutes AND consecutive polls, treat as truly unavailable
+STALE_HARD_MINUTES = 60
+STALE_HARD_CONSECUTIVE = 3  # consecutive polls exceeding STALE_HARD_MINUTES
 
 # Default fallback windows (hours, 0-23)
 DEFAULT_FALLBACK_WINDOW_1_START = 22  # overnight window: 22:00–06:00
