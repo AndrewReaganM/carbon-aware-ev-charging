@@ -221,7 +221,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
                 "[EV] Reactive refresh triggered by %s",
                 event.data.get("entity_id"),
             )
-            self.async_request_refresh()
+            self.hass.async_create_task(self.async_request_refresh())
 
         self._unsub_state_listeners.append(
             async_track_state_change_event(self.hass, entities, _on_state_change)
