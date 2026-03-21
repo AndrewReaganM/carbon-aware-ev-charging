@@ -426,9 +426,13 @@ class EVCarbonChargerOptionsFlow(config_entries.OptionsFlow):
                     ),
                     vol.Optional(
                         CONF_ROADTRIP_SOC_SENSOR,
+                        description={"suggested_value": _opt(CONF_ROADTRIP_SOC_SENSOR) or None},
                     ): EntitySelector(EntitySelectorConfig(domain="sensor")),
                     vol.Optional(
                         CONF_ROADTRIP_CHARGE_LIMIT_ENTITY,
+                        description={
+                            "suggested_value": _opt(CONF_ROADTRIP_CHARGE_LIMIT_ENTITY) or None
+                        },
                     ): EntitySelector(EntitySelectorConfig(domain=["number", "select"])),
                 }
             ),
