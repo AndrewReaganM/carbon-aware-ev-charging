@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
@@ -150,9 +151,10 @@ class EvChargeCurrentSensor(EVChargerBaseEntity, SensorEntity):
 
 
 class EvRoadtripEventSensor(EVChargerBaseEntity, SensorEntity):
-    """Active roadtrip prep event summary and details."""
+    """Active roadtrip prep event — state is the prep_start timestamp."""
 
     _attr_icon = "mdi:car-electric"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
 
     def __init__(self, coordinator: EVCarbonCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
@@ -160,10 +162,10 @@ class EvRoadtripEventSensor(EVChargerBaseEntity, SensorEntity):
         self._attr_name = "EV Roadtrip Event"
 
     @property
-    def native_value(self) -> str:
-        """Return the event summary, or 'none' when no active roadtrip."""
+    def native_value(self) -> datetime | None:
+        """Return prep_start when a roadtrip is active, None otherwise."""
         rt = self._data.active_roadtrip
-        return rt.summary if rt is not None else "none"
+        return rt.prep_start if rt is not None else None
 
     @property
     def available(self) -> bool:
@@ -175,6 +177,7 @@ class EvRoadtripEventSensor(EVChargerBaseEntity, SensorEntity):
         if rt is None:
             return {}
         return {
+            "summary": rt.summary,
             "soc_target": rt.soc_target,
             "lead_hours": rt.lead_hours,
             "event_start": rt.start.isoformat(),
