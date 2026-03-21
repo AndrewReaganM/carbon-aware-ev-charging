@@ -7,6 +7,7 @@ from typing import Any
 from homeassistant.helpers.selector import SelectOptionDict
 
 DOMAIN = "carbon_aware_ev_charging"
+VERSION = "1.7.0"
 
 # ── Config entry keys (entity IDs — stored in entry.data) ────────────────────
 CONF_CO2_SENSOR = "co2_sensor"
@@ -94,6 +95,19 @@ CHARGE_MODE_FORCE_ON = "force_on"
 CHARGE_MODE_FORCE_OFF = "force_off"
 CHARGE_MODES = [CHARGE_MODE_AUTO, CHARGE_MODE_FORCE_ON, CHARGE_MODE_FORCE_OFF]
 
+# ── Roadtrip Prep feature ─────────────────────────────────────────────────────
+# Config keys (stored in entry.options)
+CONF_ROADTRIP_CALENDARS = "roadtrip_calendars"  # list[str] of calendar entity IDs
+CONF_ROADTRIP_PREFIX = "roadtrip_prefix"  # str prefix inside brackets, e.g. "IONIQ"
+CONF_ROADTRIP_DEFAULT_LEAD_HOURS = "roadtrip_default_lead_hours"  # int, fallback if not in title
+CONF_ROADTRIP_SOC_SENSOR = "roadtrip_soc_sensor"  # optional sensor entity: current SoC %
+CONF_ROADTRIP_CHARGE_LIMIT_ENTITY = "roadtrip_charge_limit_entity"  # optional number/select entity
+
+# Title format: [PREFIX TARGET% Nh]  — TARGET% and Nh are each individually optional
+# Example matches: "[IONIQ 90% 4h]", "[IONIQ 80%]", "[IONIQ 6h]", "[IONIQ]"
+ROADTRIP_LOOKAHEAD_HOURS = 24  # how far ahead to scan calendar events
+ROADTRIP_DEFAULT_LEAD_HOURS = 3  # fallback prep window when not specified in title
+
 # ── Predicted charging states ─────────────────────────────────────────────────
 STATE_CARBON = "carbon"
 STATE_SCHEDULED = "scheduled"
@@ -107,6 +121,7 @@ STATUS_NOT_CONNECTED = "not_connected"
 STATUS_FORCED_OFF = "forced_off"
 STATUS_OVERRIDE = "override"
 STATUS_LOW_CARBON = "low_carbon"
+STATUS_ROADTRIP_PREP = "roadtrip_prep"
 STATUS_DEPARTURE_PREP = "departure_prep"
 STATUS_FALLBACK = "fallback"
 STATUS_DATA_STALE = "data_stale"
@@ -121,6 +136,7 @@ CHARGING_STATUSES: list[str] = [
     STATUS_FORCED_OFF,
     STATUS_OVERRIDE,
     STATUS_LOW_CARBON,
+    STATUS_ROADTRIP_PREP,
     STATUS_DEPARTURE_PREP,
     STATUS_FALLBACK,
     STATUS_DATA_STALE,
@@ -138,6 +154,7 @@ STATUS_MAP: dict[str, tuple[str, bool]] = {
     STATUS_FORCED_OFF: (STATE_PAUSED, False),
     STATUS_OVERRIDE: (STATE_OVERRIDE, True),
     STATUS_LOW_CARBON: (STATE_CARBON, True),
+    STATUS_ROADTRIP_PREP: (STATE_SCHEDULED, True),
     STATUS_DEPARTURE_PREP: (STATE_SCHEDULED, True),
     STATUS_FALLBACK: (STATE_SCHEDULED, True),
     STATUS_DATA_STALE: (STATE_PAUSED, False),
@@ -154,6 +171,7 @@ LED_COLOUR: dict[str, list[int]] = {
     STATE_OVERRIDE: [35, 100],
     STATE_SCHEDULED: [0, 100],
     STATE_PAUSED: [0, 100],
+    "roadtrip": [180, 90],  # cyan — roadtrip prep charging
 }
 
 # ── Persistent storage ────────────────────────────────────────────────────────
@@ -175,6 +193,7 @@ ENTITY_ID_LOW_CARBON_NOW = "ev_low_carbon_now"
 ENTITY_ID_CHARGE_MODE = "ev_charge_mode"
 ENTITY_ID_CARBON_MODE = "ev_carbon_mode"
 ENTITY_ID_DEPARTURE_HOUR = "ev_departure_hour"
+ENTITY_ID_ROADTRIP_EVENT = "ev_roadtrip_event"
 
 # ── HA platform list ──────────────────────────────────────────────────────────
 PLATFORMS = ["sensor", "binary_sensor", "select", "number", "switch"]
@@ -205,4 +224,9 @@ PREFERENCE_DEFAULTS: dict[str, Any] = {
     CONF_FALLBACK_WINDOW_2_START: DEFAULT_FALLBACK_WINDOW_2_START,
     CONF_FALLBACK_WINDOW_2_END: DEFAULT_FALLBACK_WINDOW_2_END,
     CONF_FALLBACK_WINDOW_2_ENABLED: True,
+    CONF_ROADTRIP_CALENDARS: [],
+    CONF_ROADTRIP_PREFIX: "",
+    CONF_ROADTRIP_DEFAULT_LEAD_HOURS: ROADTRIP_DEFAULT_LEAD_HOURS,
+    CONF_ROADTRIP_SOC_SENSOR: "",
+    CONF_ROADTRIP_CHARGE_LIMIT_ENTITY: "",
 }

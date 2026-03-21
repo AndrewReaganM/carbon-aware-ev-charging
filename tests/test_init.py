@@ -304,6 +304,49 @@ async def test_backfill_handles_recorder_not_running(hass: HomeAssistant) -> Non
     await hass.config_entries.async_unload(entry.entry_id)
 
 
+async def test_backfill_handles_recorder_query_error(hass: HomeAssistant) -> None:
+    """A SQLAlchemy/OS error during the recorder query is caught and setup still succeeds."""
+    from sqlalchemy.exc import OperationalError
+
+    hass.states.async_set("sensor.co2", "200")
+    hass.states.async_set("sensor.fossil", "40")
+    hass.states.async_set("switch.charger", "off", {"icon_name": "CarNotConnected"})
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=_VALID_DATA,
+        options=_VALID_OPTIONS,
+    )
+    entry.add_to_hass(hass)
+
+    fake_recorder = MagicMock()
+    fake_recorder.async_add_executor_job = AsyncMock(
+        side_effect=OperationalError("disk I/O error", None, Exception("orig"))
+    )
+
+    with (
+        patch("custom_components.carbon_aware_ev_charging.coordinator.Store") as MockStore,
+        patch(
+            "homeassistant.components.recorder.get_instance",
+            return_value=fake_recorder,
+        ),
+    ):
+        store_inst = MagicMock()
+        store_inst.async_load = AsyncMock(return_value=None)
+        store_inst.async_save = AsyncMock()
+        MockStore.return_value = store_inst
+
+        result = await hass.config_entries.async_setup(entry.entry_id)
+
+    assert result is True
+
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    # Deques should contain only the single poll value — backfill was skipped
+    assert len(coordinator._deque_30d) == 1
+
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
 # ── Reactive state-change refresh ─────────────────────────────────────────────
 
 
