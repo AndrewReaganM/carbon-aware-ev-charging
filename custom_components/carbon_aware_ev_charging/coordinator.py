@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import re
 import statistics
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -46,6 +47,11 @@ from .const import (
     CONF_LED_EFFECT_SELECT,
     CONF_LED_LIGHT,
     CONF_NOTIFY_SERVICE,
+    CONF_ROADTRIP_CALENDARS,
+    CONF_ROADTRIP_CHARGE_LIMIT_ENTITY,
+    CONF_ROADTRIP_DEFAULT_LEAD_HOURS,
+    CONF_ROADTRIP_PREFIX,
+    CONF_ROADTRIP_SOC_SENSOR,
     DEPARTURE_PREP_HOURS,
     DEQUE_7D,
     DEQUE_30D,
@@ -56,6 +62,7 @@ from .const import (
     MIN_COOLDOWN_MINUTES,
     MIN_DWELL_MINUTES,
     PREFERENCE_DEFAULTS,
+    ROADTRIP_LOOKAHEAD_HOURS,
     SENSOR_UNAVAILABLE_REPAIR_MINUTES,
     STALE_DATA_MINUTES,
     STALE_HARD_CONSECUTIVE,
@@ -71,6 +78,7 @@ from .const import (
     STATUS_MAP,
     STATUS_NOT_CONNECTED,
     STATUS_OVERRIDE,
+    STATUS_ROADTRIP_PREP,
     STATUS_WAITING_FOR_DATA,
     STORAGE_KEY,
     STORAGE_VERSION,
@@ -85,6 +93,16 @@ _UNAVAILABLE_STATES = frozenset({"unavailable", "unknown", "none", ""})
 
 _DAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
+# Regex: [PREFIX optional_soc optional_lead]
+# Examples: [IONIQ 90% 4h]  [IONIQ 80%]  [IONIQ 6h]  [IONIQ]
+_ROADTRIP_TITLE_RE = re.compile(
+    r"\[(?P<prefix>[^\]0-9%h]+?)"  # prefix (non-greedy, no digits/% chars)
+    r"(?:\s+(?P<soc>\d+)%)?"  # optional: " 90%"
+    r"(?:\s+(?P<lead>\d+)h)?"  # optional: " 4h"
+    r"\]",
+    re.IGNORECASE,
+)
+
 
 def _in_hour_window(hour: int, start: int, end: int) -> bool:
     """Return True if *hour* falls inside a [start, end) window.
@@ -98,6 +116,21 @@ def _in_hour_window(hour: int, start: int, end: int) -> bool:
         return start <= hour < end
     # Wraps midnight
     return hour >= start or hour < end
+
+
+@dataclass
+class RoadtripEvent:
+    """A parsed roadtrip calendar event driving prep charging."""
+
+    summary: str  # original calendar event title
+    start: datetime  # event start time (timezone-aware)
+    soc_target: int | None  # parsed SoC target %, or None if not in title
+    lead_hours: int  # prep window in hours (from title or default)
+
+    @property
+    def prep_start(self) -> datetime:
+        """Time at which prep charging should begin."""
+        return self.start - timedelta(hours=self.lead_hours)
 
 
 @dataclass
@@ -121,6 +154,7 @@ class EVCarbonData:
     status_reason: str = "Unknown"
     charge_rate_kw: float | None = None
     charge_current_a: int | None = None
+    active_roadtrip: RoadtripEvent | None = None
 
 
 @dataclass
@@ -147,6 +181,11 @@ class _ResolvedConfig:
     fb2_end: int
     fb1_enabled: bool
     fb2_enabled: bool
+    roadtrip_calendars: list[str]
+    roadtrip_prefix: str
+    roadtrip_default_lead_hours: int
+    roadtrip_soc_sensor: str | None
+    roadtrip_charge_limit_entity: str | None
 
 
 @dataclass
@@ -185,6 +224,7 @@ class _ChargingDecision:
     status_enum: str
     status_reason: str
     led_state: str  # predicted_state ignoring connection (for LED colour)
+    active_roadtrip: RoadtripEvent | None = field(default=None)
 
 
 class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
@@ -354,12 +394,13 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         sensors = self._read_sensors(cfg)
         self._check_sensor_availability(cfg, sensors)
         stats = self._update_statistics(sensors.co2)
-        decision = self._evaluate_charging(cfg, sensors, stats)
+        active_roadtrip = await self._async_find_active_roadtrip(cfg)
+        decision = self._evaluate_charging(cfg, sensors, stats, active_roadtrip)
         await self._control_devices(cfg, sensors, decision, stats)
 
         _LOGGER.info(
             "[EV] status=%s predicted=%s should_charge=%s mode=%s car=%s "
-            "carbon=%s z_score=%s unavailable=%s stale=%s dry_run=%s",
+            "carbon=%s z_score=%s unavailable=%s stale=%s dry_run=%s roadtrip=%s",
             decision.status_enum,
             decision.predicted_state,
             decision.should_charge,
@@ -370,6 +411,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             sensors.carbon_data_unavailable,
             sensors.data_stale,
             cfg.dry_run,
+            active_roadtrip.summary if active_roadtrip else None,
         )
 
         return EVCarbonData(
@@ -390,6 +432,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             status_reason=decision.status_reason,
             charge_rate_kw=sensors.charge_rate_kw,
             charge_current_a=sensors.charge_current_a,
+            active_roadtrip=decision.active_roadtrip,
         )
 
     # ── Extracted logic ───────────────────────────────────────────────────────
@@ -426,6 +469,11 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             fb2_end=int(_pref(CONF_FALLBACK_WINDOW_2_END)),
             fb1_enabled=bool(_pref(CONF_FALLBACK_WINDOW_1_ENABLED)),
             fb2_enabled=bool(_pref(CONF_FALLBACK_WINDOW_2_ENABLED)),
+            roadtrip_calendars=list(_pref(CONF_ROADTRIP_CALENDARS)),
+            roadtrip_prefix=str(_pref(CONF_ROADTRIP_PREFIX)).strip(),
+            roadtrip_default_lead_hours=int(_pref(CONF_ROADTRIP_DEFAULT_LEAD_HOURS)),
+            roadtrip_soc_sensor=_pref(CONF_ROADTRIP_SOC_SENSOR) or None,
+            roadtrip_charge_limit_entity=_pref(CONF_ROADTRIP_CHARGE_LIMIT_ENTITY) or None,
         )
 
     def _read_sensors(self, cfg: _ResolvedConfig) -> _SensorReadings:
@@ -645,6 +693,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         cfg: _ResolvedConfig,
         sensors: _SensorReadings,
         stats: _Statistics,
+        active_roadtrip: RoadtripEvent | None,
     ) -> _ChargingDecision:
         """Determine status_enum; derive predicted_state and should_charge."""
         # Carbon gate (with hysteresis)
@@ -681,10 +730,35 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             hour, departure_prep_start, cfg.departure_hour
         )
 
+        # Roadtrip prep: active when now is within the prep window and SoC target not yet met.
+        roadtrip_active = False
+        if active_roadtrip is not None:
+            in_prep_window = (
+                active_roadtrip.prep_start
+                <= dt_util.as_utc(now)
+                < dt_util.as_utc(active_roadtrip.start)
+            )
+            soc_target_met = False
+            if (
+                in_prep_window
+                and active_roadtrip.soc_target is not None
+                and cfg.roadtrip_soc_sensor
+            ):
+                soc_state = self.hass.states.get(cfg.roadtrip_soc_sensor)
+                if soc_state and soc_state.state not in _UNAVAILABLE_STATES:
+                    with contextlib.suppress(ValueError):
+                        current_soc = float(soc_state.state)
+                        soc_target_met = current_soc >= active_roadtrip.soc_target
+            roadtrip_active = in_prep_window and not soc_target_met
+
         # ── Single decision chain ─────────────────────────────────────────
         # Compute the grid-level decision first (ignoring connection) so the
         # LED can always show what WOULD happen if the car were plugged in.
         # Then overlay the connection check for the actual status.
+        #
+        # Priority: force_off > force_on > carbon > roadtrip > departure > fallback > …
+        # Roadtrip sits above departure_prep so a calendar event always wins over the
+        # weekly recurring schedule.
         if cfg.charge_mode == CHARGE_MODE_FORCE_OFF:
             status_enum = STATUS_FORCED_OFF
             status_reason = "Paused — forced off"
@@ -694,6 +768,10 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         elif carbon_good:
             status_enum = STATUS_LOW_CARBON
             status_reason = f"Charging — grid is clean ({stats.z_score}σ)"
+        elif roadtrip_active and active_roadtrip is not None:
+            soc_str = f" → {active_roadtrip.soc_target}%" if active_roadtrip.soc_target else ""
+            status_enum = STATUS_ROADTRIP_PREP
+            status_reason = f'Charging — roadtrip prep for "{active_roadtrip.summary}"{soc_str}'
         elif departure_prep:
             day_name = _DAY_NAMES[weekday]
             status_enum = STATUS_DEPARTURE_PREP
@@ -714,8 +792,11 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             status_enum = STATUS_GRID_DIRTY
             status_reason = f"Paused — grid too dirty ({stats.z_score}σ)"
 
-        # LED state reflects the grid decision (what would happen if plugged in)
-        led_state, _ = STATUS_MAP[status_enum]
+        # LED colour: roadtrip uses cyan, everything else follows predicted_state
+        if status_enum == STATUS_ROADTRIP_PREP:
+            led_state = "roadtrip"
+        else:
+            led_state, _ = STATUS_MAP[status_enum]
 
         # Override for connection status
         if not sensors.is_connected:
@@ -733,6 +814,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             status_enum=status_enum,
             status_reason=status_reason,
             led_state=led_state,
+            active_roadtrip=active_roadtrip if roadtrip_active else None,
         )
 
     async def _control_devices(
@@ -787,6 +869,17 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
                         )
 
                 if cooldown_met:
+                    # If this is a roadtrip prep turn-on, set the charge limit first.
+                    if (
+                        decision.active_roadtrip is not None
+                        and decision.active_roadtrip.soc_target is not None
+                        and cfg.roadtrip_charge_limit_entity
+                    ):
+                        with contextlib.suppress(Exception):
+                            await self._async_set_charge_limit(
+                                cfg.roadtrip_charge_limit_entity,
+                                decision.active_roadtrip.soc_target,
+                            )
                     await self.hass.services.async_call(
                         "switch",
                         "turn_on",
@@ -855,6 +948,181 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             self._last_led_state = led_key
 
     # ── Helpers ───────────────────────────────────────────────────────────────
+
+    # ── Roadtrip Prep ─────────────────────────────────────────────────────────
+
+    @staticmethod
+    def parse_roadtrip_title(
+        title: str,
+        prefix: str,
+        default_lead_hours: int,
+    ) -> tuple[int | None, int] | None:
+        """Parse a roadtrip event title.
+
+        Returns ``(soc_target, lead_hours)`` when the title matches the
+        configured prefix, or ``None`` if it does not match.
+
+        Title format: ``[PREFIX optional_soc% optional_lead_h]``
+        Examples:
+          ``[IONIQ 90% 4h]`` → (90, 4)
+          ``[IONIQ 80%]``    → (80, default_lead_hours)
+          ``[IONIQ 6h]``     → (None, 6)
+          ``[IONIQ]``        → (None, default_lead_hours)
+        """
+        if not prefix:
+            return None
+        match = _ROADTRIP_TITLE_RE.search(title)
+        if match is None:
+            return None
+        matched_prefix = match.group("prefix").strip()
+        if matched_prefix.lower() != prefix.lower():
+            return None
+        soc_raw = match.group("soc")
+        lead_raw = match.group("lead")
+        soc_target = int(soc_raw) if soc_raw is not None else None
+        lead_hours = int(lead_raw) if lead_raw is not None else default_lead_hours
+        return soc_target, lead_hours
+
+    async def _async_find_active_roadtrip(self, cfg: _ResolvedConfig) -> RoadtripEvent | None:
+        """Query configured calendars and return the driving roadtrip event.
+
+        Strategy: collect all matching events that start within the next
+        ROADTRIP_LOOKAHEAD_HOURS, then pick the one with the **earliest**
+        start time that also has the **highest** SoC target — i.e. charge
+        early enough for the soonest event, to the level required by the
+        highest-demand event across all overlapping events.
+        """
+        if not cfg.roadtrip_calendars or not cfg.roadtrip_prefix:
+            return None
+
+        now = dt_util.utcnow()
+        end = now + timedelta(hours=ROADTRIP_LOOKAHEAD_HOURS)
+
+        # HA calendar.get_events service returns a dict keyed by entity_id.
+        # service_response is available from HA 2023.7+.
+        try:
+            response = await self.hass.services.async_call(
+                "calendar",
+                "get_events",
+                {
+                    "entity_id": cfg.roadtrip_calendars,
+                    "start_date_time": now.isoformat(),
+                    "end_date_time": end.isoformat(),
+                },
+                blocking=True,
+                return_response=True,
+            )
+        except Exception:
+            _LOGGER.debug(
+                "[EV] calendar.get_events failed — skipping roadtrip check", exc_info=True
+            )
+            return None
+
+        if not isinstance(response, dict):
+            return None
+
+        matching: list[RoadtripEvent] = []
+        for _cal_id, cal_data in response.items():
+            events = cal_data.get("events", []) if isinstance(cal_data, dict) else []
+            for event in events:
+                summary = event.get("summary", "")
+                parsed = self.parse_roadtrip_title(
+                    summary, cfg.roadtrip_prefix, cfg.roadtrip_default_lead_hours
+                )
+                if parsed is None:
+                    continue
+                soc_target, lead_hours = parsed
+                start_raw = event.get("start")
+                if not start_raw:
+                    continue
+                try:
+                    # HA returns ISO8601 strings; handle both date and datetime forms.
+                    start_dt = dt_util.parse_datetime(start_raw)
+                    if start_dt is None:
+                        # All-day event: "YYYY-MM-DD"
+                        start_dt = dt_util.as_utc(
+                            datetime.fromisoformat(start_raw).replace(
+                                tzinfo=dt_util.DEFAULT_TIME_ZONE
+                            )
+                        )
+                    else:
+                        start_dt = dt_util.as_utc(start_dt)
+                except (ValueError, TypeError):
+                    _LOGGER.debug("[EV] Could not parse event start %r — skipping", start_raw)
+                    continue
+
+                matching.append(
+                    RoadtripEvent(
+                        summary=summary,
+                        start=start_dt,
+                        soc_target=soc_target,
+                        lead_hours=lead_hours,
+                    )
+                )
+
+        if not matching:
+            return None
+
+        # Pick earliest start; break ties by highest SoC target.
+        earliest_start = min(e.start for e in matching)
+        # Among events in the active prep window of the soonest event, find
+        # the highest SoC demand so we charge to the right level.
+        highest_soc: int | None = None
+        driving_event: RoadtripEvent | None = None
+        for evt in matching:
+            if evt.soc_target is not None and (highest_soc is None or evt.soc_target > highest_soc):
+                highest_soc = evt.soc_target
+        # Build a synthetic "merged" event: earliest start + max SoC target.
+        # The lead_hours from the earliest event drives when prep begins.
+        anchor = min(matching, key=lambda e: e.start)
+        driving_event = RoadtripEvent(
+            summary=anchor.summary,
+            start=earliest_start,
+            soc_target=highest_soc,
+            lead_hours=anchor.lead_hours,
+        )
+
+        _LOGGER.debug(
+            "[EV] Roadtrip event: summary=%r start=%s soc=%s lead=%dh prep_start=%s",
+            driving_event.summary,
+            driving_event.start.isoformat(),
+            driving_event.soc_target,
+            driving_event.lead_hours,
+            driving_event.prep_start.isoformat(),
+        )
+        return driving_event
+
+    async def _async_set_charge_limit(
+        self,
+        entity_id: str,
+        soc_target: int,
+    ) -> None:
+        """Set the charge limit on the car entity (number or select)."""
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            _LOGGER.warning("[EV] Charge-limit entity %s not found", entity_id)
+            return
+        domain = entity_id.split(".")[0]
+        if domain == "number":
+            await self.hass.services.async_call(
+                "number",
+                "set_value",
+                {"entity_id": entity_id, "value": soc_target},
+                blocking=False,
+            )
+        elif domain == "select":
+            await self.hass.services.async_call(
+                "select",
+                "select_option",
+                {"entity_id": entity_id, "option": str(soc_target)},
+                blocking=False,
+            )
+        else:
+            _LOGGER.warning(
+                "[EV] Charge-limit entity %s has unsupported domain %r (expected number or select)",
+                entity_id,
+                domain,
+            )
 
     async def _async_save_history(self) -> None:
         """Persist rolling deques so warmup survives HA restarts."""

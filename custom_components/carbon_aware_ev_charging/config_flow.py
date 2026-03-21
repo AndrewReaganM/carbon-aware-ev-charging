@@ -43,6 +43,11 @@ from .const import (
     CONF_LED_EFFECT_SELECT,
     CONF_LED_LIGHT,
     CONF_NOTIFY_SERVICE,
+    CONF_ROADTRIP_CALENDARS,
+    CONF_ROADTRIP_CHARGE_LIMIT_ENTITY,
+    CONF_ROADTRIP_DEFAULT_LEAD_HOURS,
+    CONF_ROADTRIP_PREFIX,
+    CONF_ROADTRIP_SOC_SENSOR,
     DAY_OPTIONS,
     DOMAIN,
     PREFERENCE_DEFAULTS,
@@ -162,6 +167,19 @@ class EVCarbonChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_FALLBACK_WINDOW_2_END: int(user_input[CONF_FALLBACK_WINDOW_2_END]),
                     CONF_DRY_RUN: user_input[CONF_DRY_RUN],
                     CONF_NOTIFY_SERVICE: notify,
+                    CONF_ROADTRIP_CALENDARS: user_input.get(CONF_ROADTRIP_CALENDARS, []),
+                    CONF_ROADTRIP_PREFIX: user_input.get(CONF_ROADTRIP_PREFIX, "").strip(),
+                    CONF_ROADTRIP_DEFAULT_LEAD_HOURS: int(
+                        user_input.get(
+                            CONF_ROADTRIP_DEFAULT_LEAD_HOURS,
+                            PREFERENCE_DEFAULTS[CONF_ROADTRIP_DEFAULT_LEAD_HOURS],
+                        )
+                    ),
+                    CONF_ROADTRIP_SOC_SENSOR: user_input.get(CONF_ROADTRIP_SOC_SENSOR) or "",
+                    CONF_ROADTRIP_CHARGE_LIMIT_ENTITY: user_input.get(
+                        CONF_ROADTRIP_CHARGE_LIMIT_ENTITY
+                    )
+                    or "",
                 }
                 return self.async_create_entry(
                     title="Carbon-Aware EV Charging",
@@ -234,6 +252,26 @@ class EVCarbonChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional(
                         CONF_NOTIFY_SERVICE, default=PREFERENCE_DEFAULTS[CONF_NOTIFY_SERVICE]
                     ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
+                    vol.Optional(
+                        CONF_ROADTRIP_CALENDARS,
+                        default=PREFERENCE_DEFAULTS[CONF_ROADTRIP_CALENDARS],
+                    ): EntitySelector(EntitySelectorConfig(domain="calendar", multiple=True)),
+                    vol.Optional(
+                        CONF_ROADTRIP_PREFIX,
+                        default=PREFERENCE_DEFAULTS[CONF_ROADTRIP_PREFIX],
+                    ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
+                    vol.Optional(
+                        CONF_ROADTRIP_DEFAULT_LEAD_HOURS,
+                        default=PREFERENCE_DEFAULTS[CONF_ROADTRIP_DEFAULT_LEAD_HOURS],
+                    ): NumberSelector(
+                        NumberSelectorConfig(min=1, max=24, step=1, mode=NumberSelectorMode.BOX)
+                    ),
+                    vol.Optional(CONF_ROADTRIP_SOC_SENSOR): EntitySelector(
+                        EntitySelectorConfig(domain="sensor")
+                    ),
+                    vol.Optional(CONF_ROADTRIP_CHARGE_LIMIT_ENTITY): EntitySelector(
+                        EntitySelectorConfig(domain=["number", "select"])
+                    ),
                 }
             ),
             errors=errors,
@@ -259,6 +297,9 @@ class EVCarbonChargerOptionsFlow(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
         opts = self._config_entry.options
 
+        def _opt(key: str) -> Any:
+            return opts.get(key, PREFERENCE_DEFAULTS[key])
+
         if user_input is not None:
             notify = user_input.get(CONF_NOTIFY_SERVICE, "").strip()
             if notify and not notify.startswith("notify."):
@@ -280,11 +321,21 @@ class EVCarbonChargerOptionsFlow(config_entries.OptionsFlow):
                         CONF_FALLBACK_WINDOW_2_END: int(user_input[CONF_FALLBACK_WINDOW_2_END]),
                         CONF_DRY_RUN: user_input[CONF_DRY_RUN],
                         CONF_NOTIFY_SERVICE: notify,
+                        CONF_ROADTRIP_CALENDARS: user_input.get(CONF_ROADTRIP_CALENDARS, []),
+                        CONF_ROADTRIP_PREFIX: user_input.get(CONF_ROADTRIP_PREFIX, "").strip(),
+                        CONF_ROADTRIP_DEFAULT_LEAD_HOURS: int(
+                            user_input.get(
+                                CONF_ROADTRIP_DEFAULT_LEAD_HOURS,
+                                _opt(CONF_ROADTRIP_DEFAULT_LEAD_HOURS),
+                            )
+                        ),
+                        CONF_ROADTRIP_SOC_SENSOR: user_input.get(CONF_ROADTRIP_SOC_SENSOR) or "",
+                        CONF_ROADTRIP_CHARGE_LIMIT_ENTITY: user_input.get(
+                            CONF_ROADTRIP_CHARGE_LIMIT_ENTITY
+                        )
+                        or "",
                     },
                 )
-
-        def _opt(key: str) -> Any:
-            return opts.get(key, PREFERENCE_DEFAULTS[key])
 
         current_days = _opt(CONF_DEPARTURE_DAYS)
         # Normalise to list-of-strings for the selector
@@ -359,6 +410,26 @@ class EVCarbonChargerOptionsFlow(config_entries.OptionsFlow):
                         CONF_NOTIFY_SERVICE,
                         default=_opt(CONF_NOTIFY_SERVICE),
                     ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
+                    vol.Optional(
+                        CONF_ROADTRIP_CALENDARS,
+                        default=_opt(CONF_ROADTRIP_CALENDARS),
+                    ): EntitySelector(EntitySelectorConfig(domain="calendar", multiple=True)),
+                    vol.Optional(
+                        CONF_ROADTRIP_PREFIX,
+                        default=_opt(CONF_ROADTRIP_PREFIX),
+                    ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
+                    vol.Optional(
+                        CONF_ROADTRIP_DEFAULT_LEAD_HOURS,
+                        default=_opt(CONF_ROADTRIP_DEFAULT_LEAD_HOURS),
+                    ): NumberSelector(
+                        NumberSelectorConfig(min=1, max=24, step=1, mode=NumberSelectorMode.BOX)
+                    ),
+                    vol.Optional(
+                        CONF_ROADTRIP_SOC_SENSOR,
+                    ): EntitySelector(EntitySelectorConfig(domain="sensor")),
+                    vol.Optional(
+                        CONF_ROADTRIP_CHARGE_LIMIT_ENTITY,
+                    ): EntitySelector(EntitySelectorConfig(domain=["number", "select"])),
                 }
             ),
             errors=errors,

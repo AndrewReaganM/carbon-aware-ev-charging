@@ -46,7 +46,12 @@
           "fallback_window_2_enabled": "Enable Fallback Window 2 (Midday)",
           "fallback_window_2_start": "Fallback Window 2 — Start Hour",
           "fallback_window_2_end": "Fallback Window 2 — End Hour",
-          "notify_service": "Push Notification Service (optional)"
+          "notify_service": "Push Notification Service (optional)",
+          "roadtrip_calendars": "Roadtrip Calendar(s) (optional)",
+          "roadtrip_prefix": "Roadtrip Event Prefix (optional)",
+          "roadtrip_default_lead_hours": "Default Prep Lead Time (hours)",
+          "roadtrip_soc_sensor": "Current SoC Sensor (optional)",
+          "roadtrip_charge_limit_entity": "Charge Limit Entity (optional)"
         },
         "data_description": {
           "carbon_mode": "Lenient charges ~82% of hours; Moderate ~68%; Strict ~43%.",
@@ -59,7 +64,12 @@
           "fallback_window_2_enabled": "When enabled, the charger may activate during this window if carbon data is unavailable.",
           "fallback_window_2_start": "Start hour for fallback window 2 (midday).",
           "fallback_window_2_end": "End hour for fallback window 2 (midday).",
-          "notify_service": "Full service name, e.g. notify.mobile_app_my_iphone. Leave blank to disable."
+          "notify_service": "Full service name, e.g. notify.mobile_app_my_iphone. Leave blank to disable.",
+          "roadtrip_calendars": "Select calendar entities to scan for roadtrip events. Leave empty to disable.",
+          "roadtrip_prefix": "Text inside square brackets that identifies a roadtrip event, e.g. IONIQ. Case-insensitive.",
+          "roadtrip_default_lead_hours": "How many hours before the event to start charging if not specified in the event title.",
+          "roadtrip_soc_sensor": "Optional sensor providing the car's current state of charge (%). Used to skip charging when target is already met.",
+          "roadtrip_charge_limit_entity": "Optional number or select entity to set the charge limit before a roadtrip prep session."
         }
       }
     },
@@ -86,7 +96,12 @@
           "fallback_window_2_enabled": "Enable Fallback Window 2 (Midday)",
           "fallback_window_2_start": "Fallback Window 2 — Start Hour",
           "fallback_window_2_end": "Fallback Window 2 — End Hour",
-          "notify_service": "Push Notification Service (optional)"
+          "notify_service": "Push Notification Service (optional)",
+          "roadtrip_calendars": "Roadtrip Calendar(s) (optional)",
+          "roadtrip_prefix": "Roadtrip Event Prefix (optional)",
+          "roadtrip_default_lead_hours": "Default Prep Lead Time (hours)",
+          "roadtrip_soc_sensor": "Current SoC Sensor (optional)",
+          "roadtrip_charge_limit_entity": "Charge Limit Entity (optional)"
         },
         "data_description": {
           "carbon_mode": "Lenient charges ~82% of hours; Moderate ~68%; Strict ~43%.",
@@ -99,7 +114,12 @@
           "fallback_window_2_enabled": "When enabled, the charger may activate during this window if carbon data is unavailable.",
           "fallback_window_2_start": "Start hour for fallback window 2 (midday).",
           "fallback_window_2_end": "End hour for fallback window 2 (midday).",
-          "notify_service": "Full service name, e.g. notify.mobile_app_my_iphone. Leave blank to disable."
+          "notify_service": "Full service name, e.g. notify.mobile_app_my_iphone. Leave blank to disable.",
+          "roadtrip_calendars": "Select calendar entities to scan for roadtrip events. Leave empty to disable.",
+          "roadtrip_prefix": "Text inside square brackets that identifies a roadtrip event, e.g. IONIQ. Case-insensitive.",
+          "roadtrip_default_lead_hours": "How many hours before the event to start charging if not specified in the event title.",
+          "roadtrip_soc_sensor": "Optional sensor providing the car's current state of charge (%). Used to skip charging when target is already met.",
+          "roadtrip_charge_limit_entity": "Optional number or select entity to set the charge limit before a roadtrip prep session."
         }
       }
     },

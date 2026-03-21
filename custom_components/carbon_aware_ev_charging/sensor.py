@@ -17,6 +17,7 @@ from .const import (
     ENTITY_ID_CHARGE_CURRENT,
     ENTITY_ID_CHARGE_RATE_KW,
     ENTITY_ID_CHARGING_STATUS,
+    ENTITY_ID_ROADTRIP_EVENT,
     ENTITY_ID_Z_SCORE,
 )
 from .coordinator import EVCarbonCoordinator
@@ -32,6 +33,7 @@ async def async_setup_entry(
         EvZScoreSensor(coordinator, entry),
         EvChargingStatusSensor(coordinator, entry),
         EvChargeCurrentSensor(coordinator, entry),
+        EvRoadtripEventSensor(coordinator, entry),
     ]
     if entry.data.get(CONF_CHARGER_POWER_SENSOR):
         entities.append(EvChargeRateKwSensor(coordinator, entry))
@@ -145,3 +147,36 @@ class EvChargeCurrentSensor(EVChargerBaseEntity, SensorEntity):
     @property
     def available(self) -> bool:
         return self.coordinator.last_update_success and self._data.charge_current_a is not None
+
+
+class EvRoadtripEventSensor(EVChargerBaseEntity, SensorEntity):
+    """Active roadtrip prep event summary and details."""
+
+    _attr_icon = "mdi:car-electric"
+
+    def __init__(self, coordinator: EVCarbonCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_{ENTITY_ID_ROADTRIP_EVENT}"
+        self._attr_name = "EV Roadtrip Event"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the event summary, or None when no active roadtrip."""
+        rt = self._data.active_roadtrip
+        return rt.summary if rt is not None else None
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        rt = self._data.active_roadtrip
+        if rt is None:
+            return {}
+        return {
+            "soc_target": rt.soc_target,
+            "lead_hours": rt.lead_hours,
+            "event_start": rt.start.isoformat(),
+            "prep_start": rt.prep_start.isoformat(),
+        }
