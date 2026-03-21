@@ -185,17 +185,17 @@ def test_charge_current_unavailable_when_none() -> None:
 # ── EvRoadtripEventSensor ──────────────────────────────────────────────────────
 
 
-def test_roadtrip_event_sensor_idle_shows_none_string() -> None:
-    """When no roadtrip is active, native_value is the string 'none'."""
+def test_roadtrip_event_sensor_idle_is_none() -> None:
+    """When no roadtrip is active, native_value is None (renders as 'unknown')."""
     data = EVCarbonData(active_roadtrip=None)
     sensor = EvRoadtripEventSensor(_coord(data), _entry())
 
-    assert sensor.native_value == "none"
+    assert sensor.native_value is None
     assert sensor.extra_state_attributes == {}
 
 
-def test_roadtrip_event_sensor_active_shows_summary() -> None:
-    """When a roadtrip is active, native_value is the event summary."""
+def test_roadtrip_event_sensor_active_shows_prep_start() -> None:
+    """When a roadtrip is active, native_value is the prep_start datetime."""
     from datetime import datetime
 
     from custom_components.carbon_aware_ev_charging.coordinator import RoadtripEvent
@@ -209,8 +209,9 @@ def test_roadtrip_event_sensor_active_shows_summary() -> None:
     data = EVCarbonData(active_roadtrip=event)
     sensor = EvRoadtripEventSensor(_coord(data), _entry())
 
-    assert sensor.native_value == "[IONIQ 90% 4h]"
+    assert sensor.native_value == datetime(2026, 3, 21, 5, 0, tzinfo=UTC)
     attrs = sensor.extra_state_attributes
+    assert attrs["summary"] == "[IONIQ 90% 4h]"
     assert attrs["soc_target"] == 90
     assert attrs["lead_hours"] == 4
     assert attrs["event_start"] == "2026-03-21T09:00:00+00:00"
