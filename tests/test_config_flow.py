@@ -19,6 +19,8 @@ from custom_components.carbon_aware_ev_charging.const import (
     CONF_DRY_RUN,
     CONF_FOSSIL_SENSOR,
     CONF_NOTIFY_SERVICE,
+    CONF_ROADTRIP_CHARGE_LIMIT_ENTITY,
+    CONF_ROADTRIP_SOC_SENSOR,
     DOMAIN,
 )
 
@@ -175,3 +177,66 @@ async def test_options_flow_updates_carbon_mode(hass: HomeAssistant) -> None:
     entry = hass.config_entries.async_entries(DOMAIN)[0]
     assert entry.options[CONF_CARBON_MODE] == "Strict"
     assert entry.options[CONF_DRY_RUN] is True
+
+
+async def test_options_flow_soc_and_charge_limit_round_trip(hass: HomeAssistant) -> None:
+    """SoC sensor and charge limit entity save correctly and re-appear as
+    suggested_value when the options flow is re-opened."""
+    _seed_states(hass)
+    hass.states.async_set("sensor.soc", "80")
+    hass.states.async_set("number.charge_limit", "90")
+
+    with patch(
+        "custom_components.carbon_aware_ev_charging.async_setup_entry",
+        return_value=True,
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], VALID_STEP1)
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], VALID_STEP2)
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], VALID_STEP3)
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+
+    with patch(
+        "custom_components.carbon_aware_ev_charging.async_setup_entry",
+        return_value=True,
+    ):
+        # First options-flow pass: set the two optional entity fields.
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {
+                CONF_CARBON_MODE: "Moderate",
+                CONF_DEPARTURE_HOUR: 5,
+                CONF_DEPARTURE_DAYS: ["2", "3"],
+                CONF_DRY_RUN: False,
+                CONF_NOTIFY_SERVICE: "",
+                CONF_ROADTRIP_SOC_SENSOR: "sensor.soc",
+                CONF_ROADTRIP_CHARGE_LIMIT_ENTITY: "number.charge_limit",
+            },
+        )
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    assert entry.options[CONF_ROADTRIP_SOC_SENSOR] == "sensor.soc"
+    assert entry.options[CONF_ROADTRIP_CHARGE_LIMIT_ENTITY] == "number.charge_limit"
+
+    with patch(
+        "custom_components.carbon_aware_ev_charging.async_setup_entry",
+        return_value=True,
+    ):
+        # Re-open the options flow and verify suggested_value is pre-populated.
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        assert result["type"] == FlowResultType.FORM
+        data_schema = result["data_schema"]
+        assert data_schema is not None
+        schema = data_schema.schema
+        soc_key = next(k for k in schema if getattr(k, "schema", None) == CONF_ROADTRIP_SOC_SENSOR)
+        limit_key = next(
+            k for k in schema if getattr(k, "schema", None) == CONF_ROADTRIP_CHARGE_LIMIT_ENTITY
+        )
+        assert soc_key.description["suggested_value"] == "sensor.soc"
+        assert limit_key.description["suggested_value"] == "number.charge_limit"

@@ -160,10 +160,10 @@ class EvRoadtripEventSensor(EVChargerBaseEntity, SensorEntity):
         self._attr_name = "EV Roadtrip Event"
 
     @property
-    def native_value(self) -> str | None:
-        """Return the event summary, or None when no active roadtrip."""
+    def native_value(self) -> str:
+        """Return the event summary, or 'none' when no active roadtrip."""
         rt = self._data.active_roadtrip
-        return rt.summary if rt is not None else None
+        return rt.summary if rt is not None else "none"
 
     @property
     def available(self) -> bool:

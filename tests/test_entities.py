@@ -6,6 +6,7 @@ full HA instance. They focus on property correctness and state-mutation methods.
 
 from __future__ import annotations
 
+from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -36,6 +37,7 @@ from custom_components.carbon_aware_ev_charging.sensor import (
     EvChargeCurrentSensor,
     EvChargeRateKwSensor,
     EvChargingStatusSensor,
+    EvRoadtripEventSensor,
     EvZScoreSensor,
 )
 from custom_components.carbon_aware_ev_charging.switch import EvOptionSwitch
@@ -176,6 +178,48 @@ def test_charge_current_value() -> None:
 def test_charge_current_unavailable_when_none() -> None:
     data = EVCarbonData(charge_current_a=None)
     sensor = EvChargeCurrentSensor(_coord(data), _entry())
+
+    assert sensor.available is False
+
+
+# ── EvRoadtripEventSensor ──────────────────────────────────────────────────────
+
+
+def test_roadtrip_event_sensor_idle_shows_none_string() -> None:
+    """When no roadtrip is active, native_value is the string 'none'."""
+    data = EVCarbonData(active_roadtrip=None)
+    sensor = EvRoadtripEventSensor(_coord(data), _entry())
+
+    assert sensor.native_value == "none"
+    assert sensor.extra_state_attributes == {}
+
+
+def test_roadtrip_event_sensor_active_shows_summary() -> None:
+    """When a roadtrip is active, native_value is the event summary."""
+    from datetime import datetime
+
+    from custom_components.carbon_aware_ev_charging.coordinator import RoadtripEvent
+
+    event = RoadtripEvent(
+        summary="[IONIQ 90% 4h]",
+        start=datetime(2026, 3, 21, 9, 0, tzinfo=UTC),
+        soc_target=90,
+        lead_hours=4,
+    )
+    data = EVCarbonData(active_roadtrip=event)
+    sensor = EvRoadtripEventSensor(_coord(data), _entry())
+
+    assert sensor.native_value == "[IONIQ 90% 4h]"
+    attrs = sensor.extra_state_attributes
+    assert attrs["soc_target"] == 90
+    assert attrs["lead_hours"] == 4
+    assert attrs["event_start"] == "2026-03-21T09:00:00+00:00"
+    assert attrs["prep_start"] == "2026-03-21T05:00:00+00:00"
+
+
+def test_roadtrip_event_sensor_unavailable_on_coord_failure() -> None:
+    data = EVCarbonData(active_roadtrip=None)
+    sensor = EvRoadtripEventSensor(_coord(data, success=False), _entry())
 
     assert sensor.available is False
 
