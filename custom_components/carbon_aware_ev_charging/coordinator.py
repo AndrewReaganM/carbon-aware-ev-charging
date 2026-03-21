@@ -270,6 +270,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             from homeassistant.components.recorder.history import (
                 state_changes_during_period,
             )
+            from sqlalchemy.exc import SQLAlchemyError
         except ImportError:
             _LOGGER.debug("[EV] Recorder not available — skipping history backfill")
             return
@@ -295,9 +296,12 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
                 co2_entity,
                 True,  # no_attributes — we only need the state value
             )
-        except Exception:
-            _LOGGER.debug(
-                "[EV] Recorder query failed — skipping history backfill",
+        except (OSError, RuntimeError, SQLAlchemyError) as err:
+            # OSError: filesystem-level failure; RuntimeError: no DB session;
+            # SQLAlchemyError: any DB-layer error (wraps sqlite3 errors internally).
+            _LOGGER.warning(
+                "[EV] Recorder query failed — skipping history backfill: %s",
+                err,
                 exc_info=True,
             )
             return
@@ -338,7 +342,9 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
                 count_30d,
                 count_7d,
             )
-            self.hass.async_create_task(self._async_save_history())
+            self.hass.async_create_background_task(
+                self._async_save_history(), "ev_save_history_backfill"
+            )
 
     # ── Main update ───────────────────────────────────────────────────────────
 
@@ -462,8 +468,9 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         # Tiered staleness check
         data_stale = False
         hard_stale = False
-        soft_threshold = dt_util.utcnow() - timedelta(minutes=STALE_DATA_MINUTES)
-        hard_threshold = dt_util.utcnow() - timedelta(minutes=STALE_HARD_MINUTES)
+        now = dt_util.utcnow()
+        soft_threshold = now - timedelta(minutes=STALE_DATA_MINUTES)
+        hard_threshold = now - timedelta(minutes=STALE_HARD_MINUTES)
         for _entity, _state in (
             (cfg.co2_entity, co2_state),
             (cfg.fossil_entity, fossil_state),
@@ -581,7 +588,9 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             ts = dt_util.utcnow().timestamp()
             self._deque_7d.append((ts, co2))
             self._deque_30d.append((ts, co2))
-            self.hass.async_create_task(self._async_save_history())
+            self.hass.async_create_background_task(
+                self._async_save_history(), "ev_save_history_update"
+            )
 
         vals_7d = [v for _, v in self._deque_7d]
         mean_7d: float | None = None

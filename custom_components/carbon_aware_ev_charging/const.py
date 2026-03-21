@@ -7,6 +7,7 @@ from typing import Any
 from homeassistant.helpers.selector import SelectOptionDict
 
 DOMAIN = "carbon_aware_ev_charging"
+VERSION = "1.7.0"
 
 # ── Config entry keys (entity IDs — stored in entry.data) ────────────────────
 CONF_CO2_SENSOR = "co2_sensor"

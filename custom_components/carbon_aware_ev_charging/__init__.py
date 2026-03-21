@@ -2,20 +2,17 @@
 
 from __future__ import annotations
 
-import json
 import logging
-from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.storage import Store
 
-from .const import DOMAIN, PLATFORMS, STORAGE_KEY, STORAGE_VERSION
+from .const import DOMAIN, PLATFORMS, STORAGE_KEY, STORAGE_VERSION, VERSION
 from .coordinator import EVCarbonCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-_MANIFEST = json.loads((Path(__file__).parent / "manifest.json").read_text())
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -46,7 +43,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         identifiers={(DOMAIN, entry.entry_id)},
         name="Carbon-Aware EV Charging",
         manufacturer="Carbon-Aware EV Charging",
-        model=_MANIFEST.get("version", "unknown"),
+        model=VERSION,
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

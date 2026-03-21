@@ -139,6 +139,7 @@ def _mock_services(coord: EVCarbonCoordinator, hass: HomeAssistant) -> AsyncMock
             coro.close()
 
     fake.async_create_task = _discard
+    fake.async_create_background_task = lambda coro, *args, **kwargs: _discard(coro)
     coord.hass = fake
     return svc
 
