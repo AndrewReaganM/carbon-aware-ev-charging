@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 from homeassistant.helpers.selector import SelectOptionDict
 
 DOMAIN = "carbon_aware_ev_charging"
-VERSION = "1.7.0"
+VERSION: str = json.loads((Path(__file__).parent / "manifest.json").read_text())["version"]
 
 # ── Config entry keys (entity IDs — stored in entry.data) ────────────────────
 CONF_CO2_SENSOR = "co2_sensor"
