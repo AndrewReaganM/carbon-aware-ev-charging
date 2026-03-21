@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceNotFound
 
 from custom_components.carbon_aware_ev_charging.const import (
     CHARGE_MODE_AUTO,
@@ -547,6 +548,16 @@ class TestAsyncFindActiveRoadtrip:
         """If calendar.get_events raises, return None gracefully."""
         coord = self._make_coord_with_mock_services(
             hass, None, side_effect=Exception("calendar unavailable")
+        )
+        cfg = _make_resolved_config()
+        result = await coord._async_find_active_roadtrip(cfg)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_service_not_found_returns_none_silently(self, hass: HomeAssistant):
+        """ServiceNotFound (calendar integration not loaded) is handled silently."""
+        coord = self._make_coord_with_mock_services(
+            hass, None, side_effect=ServiceNotFound("calendar", "get_events")
         )
         cfg = _make_resolved_config()
         result = await coord._async_find_active_roadtrip(cfg)

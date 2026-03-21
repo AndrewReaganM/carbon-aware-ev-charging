@@ -1012,6 +1012,9 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
                 blocking=True,
                 return_response=True,
             )
+        except ServiceNotFound:
+            # calendar integration not loaded or entity not yet set up — skip silently.
+            return None
         except Exception:
             _LOGGER.debug(
                 "[EV] calendar.get_events failed — skipping roadtrip check", exc_info=True
