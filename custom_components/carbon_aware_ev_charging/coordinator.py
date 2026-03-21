@@ -657,7 +657,18 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             cfg.fb1_enabled and _in_hour_window(hour, cfg.fb1_start, cfg.fb1_end)
         ) or (cfg.fb2_enabled and _in_hour_window(hour, cfg.fb2_start, cfg.fb2_end))
         departure_prep_start = (cfg.departure_hour - DEPARTURE_PREP_HOURS) % 24
-        departure_prep = weekday in cfg.departure_days and _in_hour_window(
+        # When the prep window crosses midnight (e.g. departure=01:00 → window=[22,01)),
+        # hours after midnight belong to the *next* calendar day.  Check yesterday's
+        # weekday for the post-midnight portion so the user only needs to configure the
+        # actual departure day — not both sides of midnight.
+        wraps_midnight = departure_prep_start > cfg.departure_hour
+        if wraps_midnight and hour < cfg.departure_hour:
+            # Post-midnight portion: the calendar day has already ticked over, so the
+            # relevant departure day is yesterday.
+            departure_day_match = (weekday - 1) % 7 in cfg.departure_days
+        else:
+            departure_day_match = weekday in cfg.departure_days
+        departure_prep = departure_day_match and _in_hour_window(
             hour, departure_prep_start, cfg.departure_hour
         )
 
