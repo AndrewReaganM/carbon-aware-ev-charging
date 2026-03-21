@@ -432,7 +432,7 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             status_reason=decision.status_reason,
             charge_rate_kw=sensors.charge_rate_kw,
             charge_current_a=sensors.charge_current_a,
-            active_roadtrip=decision.active_roadtrip,
+            active_roadtrip=active_roadtrip,
         )
 
     # ── Extracted logic ───────────────────────────────────────────────────────
@@ -1085,13 +1085,18 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
             lead_hours=anchor.lead_hours,
         )
 
+        now_utc = dt_util.utcnow()
+        in_window = driving_event.prep_start <= now_utc < driving_event.start
         _LOGGER.debug(
-            "[EV] Roadtrip event: summary=%r start=%s soc=%s lead=%dh prep_start=%s",
+            "[EV] Roadtrip event detected: summary=%r start=%s soc=%s lead=%dh prep_start=%s (%s)",
             driving_event.summary,
             driving_event.start.isoformat(),
             driving_event.soc_target,
             driving_event.lead_hours,
             driving_event.prep_start.isoformat(),
+            "IN PREP WINDOW"
+            if in_window
+            else "waiting — prep starts at " + driving_event.prep_start.isoformat(),
         )
         return driving_event
 

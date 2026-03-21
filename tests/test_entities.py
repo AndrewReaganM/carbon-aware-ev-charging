@@ -186,7 +186,7 @@ def test_charge_current_unavailable_when_none() -> None:
 
 
 def test_roadtrip_event_sensor_idle_is_none() -> None:
-    """When no roadtrip is active, native_value is None (renders as 'unknown')."""
+    """When no upcoming roadtrip event exists, native_value is None (renders as 'unknown')."""
     data = EVCarbonData(active_roadtrip=None)
     sensor = EvRoadtripEventSensor(_coord(data), _entry())
 
@@ -194,8 +194,9 @@ def test_roadtrip_event_sensor_idle_is_none() -> None:
     assert sensor.extra_state_attributes == {}
 
 
-def test_roadtrip_event_sensor_active_shows_prep_start() -> None:
-    """When a roadtrip is active, native_value is the prep_start datetime."""
+def test_roadtrip_event_sensor_upcoming_shows_prep_start() -> None:
+    """Sensor shows prep_start whenever an event is in the 24h window,
+    regardless of whether the prep window has started yet."""
     from datetime import datetime
 
     from custom_components.carbon_aware_ev_charging.coordinator import RoadtripEvent
