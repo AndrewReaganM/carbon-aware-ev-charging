@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="brand/icon@2x.png" alt="Carbon-Aware EV Charging" width="128">
+</p>
+
 # Carbon-Aware EV Charging
 
 [![HACS: Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
@@ -22,7 +26,7 @@ The charger turns on when:
 - The Z-score is below your chosen sensitivity threshold, **and**
 - Fossil fuel generation is below 75% (a hard safety floor)
 
-If carbon data is unavailable or the grid is consistently dirty, built-in **fallback windows** (overnight and midday) ensure your car is still charged.
+If carbon data is unavailable or the grid is consistently dirty, built-in **fallback windows** ensure your car is still charged.
 
 ---
 
@@ -31,9 +35,11 @@ If carbon data is unavailable or the grid is consistently dirty, built-in **fall
 - **Fully UI-configured** — no YAML editing needed after installation
 - **Statistical carbon signal** — Z-score adapts to your grid's typical range
 - **Three sensitivity modes** — from aggressive carbon avoidance to charging most of the time
-- **Fallback windows** — guaranteed charging overnight (22:00–06:00) and midday (11:00–15:00) even on dirty-grid days
-- **Departure-day prep charging** — configurable days and hour so your car is always ready
+- **Configurable fallback windows** — guaranteed charging windows (overnight and midday by default) on dirty-grid days, each independently adjustable and enable/disable-able
+- **Roadtrip prep charging** — calendar-driven: parses events with a configurable prefix to activate full-speed charging ahead of a trip, with optional SoC targeting and charge limit control
+- **Departure-day prep charging** — weekly schedule so your car is always ready on commute days
 - **Hysteresis** — prevents rapid on/off switching when hovering near the threshold
+- **Dwell and cooldown** — minimum 15-minute on-time and 10-minute off-time to protect the charger
 - **Dry-run mode** — log decisions without touching the charger, for safe testing
 - **Optional LED indicator** — RGB light shows charging state at a glance
 - **Optional push notifications** — get notified when charging starts or stops
@@ -47,7 +53,7 @@ Before installing, you need:
 
 1. **A CO₂ intensity sensor** — the [Electricity Maps](https://www.home-assistant.io/integrations/electricity_maps/) integration provides both a CO₂ intensity sensor and a fossil fuel percentage sensor out of the box. Any sensor exposing a numeric CO₂ value (g/kWh) and a fossil fuel percentage will work.
 
-2. **A controllable charger switch** — your charger must be exposed as a `switch` entity in Home Assistant. This integration has been tested with **Emporia** chargers. Other chargers should work as long as they present a switch entity and expose a connection attribute (or an equivalent attribute) indicating whether a car is plugged in.
+2. **A controllable charger switch** — your charger must be exposed as a `switch` entity in Home Assistant. This integration has been tested with **Emporia** chargers. Other chargers should work as long as they present a switch entity and expose an attribute indicating whether a car is plugged in.
 
 3. **Home Assistant 2024.1 or later**
 
@@ -88,9 +94,11 @@ After installation, go to **Settings → Devices & Services → Add Integration*
 | **Charger Switch** | The `switch` entity that controls your EV charger |
 | **Connection Attribute** | The charger switch attribute used to detect if a car is plugged in (default: `icon_name`) |
 | **Not-Connected Value** | The attribute value when no car is connected (default: `CarNotConnected`) |
-| **Charger Power Sensor** *(optional)* | Sensor reporting current charge power in kW; used to populate the charge rate entity |
+| **Charger Power Sensor** *(optional)* | Sensor reporting current charge power in watts; used to populate the charge rate entity |
 
 > **Emporia users:** The connection attribute `icon_name` with value `CarNotConnected` are the correct defaults for Emporia chargers. No changes needed.
+
+These values are fixed after initial setup. To change them, remove the integration and re-add it.
 
 ### Step 2 — LED Indicator *(optional)*
 
@@ -101,19 +109,26 @@ If you have an RGB light (e.g., a smart bulb or LED strip in the garage), you ca
 | **RGB Indicator Light** | A `light` entity supporting HS colour |
 | **LED Effect Selector** | A `select` entity for choosing the light's animation effect |
 
-See [LED Indicator](#led-indicator) for colour meanings.
+See [LED Indicator](#led-indicator) for colour meanings. Leave both fields blank to skip LED feedback entirely.
 
 ### Step 3 — Preferences
+
+All preferences can be changed later via **Settings → Devices & Services → Carbon-Aware EV Charging → Configure**, without re-running the full wizard. They are also exposed as entities you can control from a dashboard.
 
 | Field | Description | Default |
 |---|---|---|
 | **Carbon Sensitivity** | How strictly to follow carbon signals (`Lenient`, `Moderate`, `Strict`) | `Moderate` |
-| **Departure Hour** | Hour of day (0–23) to trigger departure-prep charging | `7` |
-| **Departure Days** | Days of the week to activate departure prep | Wednesday, Thursday |
+| **Departure Hour** | Hour of day (0–23) to end departure-prep charging (prep starts 3 hours before) | `5` |
+| **Departure Days** | Days of the week to activate departure prep | Mon–Fri |
+| **Fallback Window 1** | Overnight charging window start/end hours | `22:00–06:00` (enabled) |
+| **Fallback Window 2** | Midday charging window start/end hours | `11:00–15:00` (enabled) |
 | **Dry Run** | Log decisions only; do not control the charger | Off |
 | **Notification Service** *(optional)* | HA notify service (e.g., `notify.mobile_app_my_phone`) | — |
-
-You can change any of these later via **Settings → Devices & Services → Carbon-Aware EV Charging → Configure**, without re-running the full wizard.
+| **Roadtrip Calendar(s)** *(optional)* | Calendar entities to scan for trip prep events | — |
+| **Roadtrip Event Prefix** *(optional)* | Prefix identifying roadtrip events (e.g., `EV`) | — |
+| **Default Roadtrip Lead Time** | Hours of prep charging before a trip (when not specified in the event) | `3` |
+| **SoC Sensor** *(optional)* | Sensor reporting the car's current state of charge (%) | — |
+| **Charge Limit Entity** *(optional)* | `number` or `select` entity to set the charge limit for roadtrip prep | — |
 
 ---
 
@@ -121,11 +136,13 @@ You can change any of these later via **Settings → Devices & Services → Carb
 
 | Mode | Z-score Threshold | Approximate Charge Frequency |
 |---|---|---|
-| **Lenient** | < 0.92 | ~82% of hours — skips only the dirtiest peaks |
-| **Moderate** | < 0.47 | ~68% of hours — avoids above-average carbon periods |
-| **Strict** | < −0.18 | ~43% of hours — only charges during genuinely clean windows |
+| **Lenient** | < 0.92 σ | ~82% of hours — skips only the dirtiest peaks |
+| **Moderate** | < 0.47 σ | ~68% of hours — avoids above-average carbon periods |
+| **Strict** | < −0.18 σ | ~43% of hours — only charges during genuinely clean windows |
 
-All modes also enforce a **75% fossil fuel hard floor** — if more than three-quarters of grid generation is from fossil fuels, charging will not start regardless of the Z-score.
+All modes also enforce a **75% fossil fuel hard floor** — if more than three-quarters of grid generation is from fossil fuels, the carbon gate will not open regardless of the Z-score.
+
+When the charger is already on, **0.4 σ of hysteresis** is added to the threshold before the charger will be turned off. This prevents rapid cycling when the signal is hovering near the boundary.
 
 **Which mode should I use?**
 - Start with **Moderate**. If your car is frequently not charged enough, switch to **Lenient**.
@@ -135,22 +152,58 @@ All modes also enforce a **75% fossil fuel hard floor** — if more than three-q
 
 ## Charging Decision Logic
 
-Every 5 minutes (and on relevant state changes) the integration evaluates:
+Every 5 minutes (and immediately on relevant state changes) the integration evaluates the following priority chain. The first matching condition wins.
 
-```
-force_off mode?     → Paused      (charger off, LED slow-blinks red)
-force_on mode?      → Override    (charger on regardless of carbon, LED amber)
-carbon gate open?   → Carbon      (charger on, LED green)
-fallback window?    → Scheduled   (charger on, LED red rising)
-otherwise           → Paused      (charger off, LED slow-blinks red)
-```
+| Priority | Condition | Status | Charger |
+|---|---|---|---|
+| 1 | Charge mode set to `force_off` | Forced Off | Off |
+| 2 | Charge mode set to `force_on` | Override | On |
+| 3 | Carbon gate open (Z-score below threshold, fossil < 75%) | Low Carbon | On |
+| 4 | Roadtrip prep window active (and SoC target not yet met) | Roadtrip Prep | On |
+| 5 | Departure prep window active | Departure Prep | On |
+| 6 | Carbon data unavailable and inside a fallback window | Fallback | On |
+| 7 | Carbon data stale (> 60 min, 3 consecutive polls) | Data Stale | Off |
+| 8 | Carbon data unavailable | Waiting for Data | Off |
+| 9 | Fossil fuel % ≥ 75% | Fossil High | Off |
+| 10 | Z-score above threshold | Grid Dirty | Off |
 
-**Fallback windows** (when Scheduled charging activates even on dirty-grid days):
+If the car is not connected, the charger is always off regardless of the above — but the integration continues to evaluate and display what it *would* do if the car were connected.
+
+### Fallback Windows
+
+Fallback windows only activate when carbon data is unavailable. They do not override a good or bad grid signal during normal operation.
+
+Default windows (both configurable and independently toggleable):
 - **Overnight:** 22:00–06:00
 - **Midday:** 11:00–15:00
-- **Departure days:** after your configured departure hour, on your configured departure days
 
-**Hysteresis:** When the charger is already on and the Z-score rises just above the threshold, the integration adds 0.4σ of tolerance before turning off. This prevents the charger rapidly cycling if the signal is hovering near the boundary.
+### Departure Prep
+
+A 3-hour window before the configured departure hour activates on each selected day. For example, with a departure hour of `5`, prep charging runs from 02:00–05:00 on the selected days.
+
+Departure prep is lower priority than the carbon gate — if the grid is clean, the charger runs under the Low Carbon status instead.
+
+---
+
+## Roadtrip Prep
+
+If you configure a calendar and event prefix, the integration scans your calendar every 5 minutes for upcoming events. Any event whose title contains `[PREFIX ...]` triggers prep charging ahead of the trip.
+
+### Event title format
+
+```
+[PREFIX optional_soc% optional_leadh]
+```
+
+Examples:
+- `Road trip [EV 90% 4h]` — charge to 90% SoC, start prep 4 hours before departure
+- `Drive to airport [EV 80%]` — charge to 80%, use the default lead time
+- `Long drive [EV 6h]` — no SoC target, start prep 6 hours before
+- `Day trip [EV]` — no SoC target, use the default lead time
+
+If a SoC sensor is configured and the event specifies a SoC target, prep charging stops automatically once the target is reached.
+
+If a charge limit entity is configured, the limit is set to the event's SoC target when prep charging begins.
 
 ---
 
@@ -158,35 +211,69 @@ otherwise           → Paused      (charger off, LED slow-blinks red)
 
 The integration creates a single device with the following entities:
 
-| Entity | Type | Description |
+### Sensors
+
+| Entity suffix | Description |
+|---|---|
+| `co2_z_score` | Current Z-score (σ). Negative = cleaner than usual. Attributes: `mean_7d`, `stdev_7d`, `mean_30d`, `stdev_30d`, `co2` |
+| `ev_charging_status` | Current charging decision status (see priority table above). Attributes: `status_reason`, `predicted_state`, `should_charge`, `z_score`, `fossil_pct` |
+| `ev_charge_rate_kw` | Current charge power in kW *(only created if a power sensor is configured)* |
+| `ev_charge_current` | Current charge current in amps (read from the charger switch's `charging_rate` attribute) |
+| `ev_roadtrip_event` | Timestamp of the next roadtrip prep start time when a prep window is active; unavailable otherwise. Attributes: `summary`, `soc_target`, `lead_hours`, `event_start` |
+
+### Binary Sensors
+
+| Entity suffix | Description |
+|---|---|
+| `ev_low_carbon_now` | `On` when the carbon gate is open (Z-score below threshold and fossil % below 75%), regardless of car connection |
+| `ev_connected` | `On` when a car is plugged in |
+
+### Select Entities
+
+| Entity suffix | Options | Description |
 |---|---|---|
-| `co2_z_score` | Sensor | Current Z-score (negative = cleaner than usual) |
-| `ev_low_carbon_now` | Sensor | `True` when the carbon gate is open |
-| `ev_charge_rate_kw` | Sensor | Current charge power in kW |
-| `ev_charge_current` | Sensor | Current charge current in amps |
-| `ev_connected` | Binary Sensor | `On` when a car is plugged in |
-| `ev_charge_mode` | Select | `auto` / `force_on` / `force_off` |
-| `ev_carbon_mode` | Select | `Lenient` / `Moderate` / `Strict` |
-| `ev_departure_hour` | Number | Hour of day (0–23) for departure prep |
+| `ev_charge_mode` | `auto` / `force_on` / `force_off` | Override the charging decision |
+| `ev_carbon_mode` | `Lenient` / `Moderate` / `Strict` | Carbon sensitivity level |
+
+### Number Entities
+
+| Entity suffix | Range | Description |
+|---|---|---|
+| `ev_departure_hour` | 0–23 | Hour at which departure-prep charging ends |
+| `fallback_window_1_start` | 0–23 | Fallback window 1 start hour |
+| `fallback_window_1_end` | 0–23 | Fallback window 1 end hour |
+| `fallback_window_2_start` | 0–23 | Fallback window 2 start hour |
+| `fallback_window_2_end` | 0–23 | Fallback window 2 end hour |
+
+### Switch Entities
+
+| Entity suffix | Description |
+|---|---|
+| `fallback_window_1_enabled` | Enable/disable fallback window 1 |
+| `fallback_window_2_enabled` | Enable/disable fallback window 2 |
+| `dry_run` | Enable/disable dry-run mode |
 
 ---
 
 ## LED Indicator
 
-If configured, the RGB light reflects the current charging state:
+If configured, the RGB light reflects the current grid state (what would happen if the car were connected):
 
-| State | Colour | Effect | Meaning |
+| State | Colour | Effect (car connected) | Effect (car disconnected) |
 |---|---|---|---|
-| Carbon | Green | Rising | Charging on clean grid |
-| Override | Amber | Rising | Charging forced on |
-| Scheduled | Red | Rising | Charging in fallback window |
-| Paused | Red | Slow blink | Not charging |
+| Low Carbon | Green | Rising | Slow Blink |
+| Override | Amber | Rising | Slow Blink |
+| Roadtrip Prep | Cyan | Rising | Slow Blink |
+| Fallback / Departure Prep | Red | Rising | Slow Blink |
+| Paused | Red | Slow Blink | Slow Blink |
+
+The LED is only updated when its state actually changes, to avoid unnecessary service calls.
 
 ---
 
 ## Dry-Run Mode
 
-Enable **Dry Run** in the integration options to have the integration evaluate all logic and log its decisions without actually switching the charger or changing the LED. This is useful for validating configuration before going live. Check the Home Assistant logs (filter by `carbon_aware_ev_charging`) to see the decision on each cycle.
+Enable the **EV Dry Run** switch (or toggle it in integration options) to have the integration evaluate all logic and log its decisions without actually switching the charger, updating the LED, or sending notifications. Check the Home Assistant logs (filter by `carbon_aware_ev_charging`) to see the decision on each cycle. This is useful for validating configuration before going live.
 
 ---
 
@@ -229,7 +316,7 @@ views:
             name: Car
           - entity: YOUR_CHARGER_SWITCH   # ← replace with your charger switch
             name: Charger
-          - entity: sensor.ev_low_carbon_now
+          - entity: binary_sensor.ev_low_carbon_now
             name: Carbon OK
             icon: mdi:leaf
 
@@ -238,8 +325,8 @@ views:
         title: Charging Session
         show_state: true
         entities:
-          # Remove ev_charge_rate if you did not configure a power sensor.
-          - entity: sensor.ev_charge_rate
+          # Remove ev_charge_rate_kw if you did not configure a power sensor.
+          - entity: sensor.ev_charge_rate_kw
             name: Charge Rate
             icon: mdi:lightning-bolt
           - entity: sensor.ev_charge_current
@@ -251,7 +338,7 @@ views:
         cards:
           - type: gauge
             title: CO2 Z-Score
-            entity: sensor.ev_co2_z_score
+            entity: sensor.co2_z_score
             min: -3
             max: 3
             needle: true
@@ -297,7 +384,7 @@ views:
         title: CO2 Z-Score (48h)
         hours_to_show: 48
         entities:
-          - entity: sensor.ev_co2_z_score
+          - entity: sensor.co2_z_score
             name: Z-Score
 
       # ── Charge Window History (optional — requires custom:plotly-graph) ──
@@ -308,7 +395,7 @@ views:
         hours_to_show: 48
         refresh_interval: 300
         entities:
-          - entity: sensor.ev_low_carbon_now
+          - entity: binary_sensor.ev_low_carbon_now
             name: Carbon OK
             yaxis: y2
             fill: tozeroy
@@ -316,7 +403,7 @@ views:
             line:
               color: "rgba(0,200,80,0.4)"
               width: 1
-          - entity: sensor.ev_co2_z_score
+          - entity: sensor.co2_z_score
             name: Z-Score
             yaxis: y
             line:
@@ -393,7 +480,7 @@ views:
           - min
           - max
         entities:
-          - entity: sensor.ev_co2_z_score
+          - entity: sensor.co2_z_score
             name: Z-Score
 
       # ── Controls ─────────────────────────────────────────────────────────
@@ -402,10 +489,16 @@ views:
         entities:
           - entity: select.ev_charge_mode
             name: Charge Mode
-          - entity: select.ev_carbon_sensitivity
+          - entity: select.ev_carbon_mode
             name: Carbon Sensitivity
           - entity: number.ev_departure_hour
             name: Departure Prep Hour
+          - entity: switch.fallback_window_1_enabled
+            name: Overnight Fallback
+          - entity: switch.fallback_window_2_enabled
+            name: Midday Fallback
+          - entity: switch.dry_run
+            name: Dry Run
 ```
 
 </details>
@@ -414,31 +507,35 @@ views:
 
 ## Statistics Warmup
 
-The Z-score requires approximately **7 days of CO₂ data** before it becomes meaningful. During this warmup period:
+The Z-score requires approximately **7 days of CO₂ data** before it becomes fully meaningful. During this warmup period:
 
-- The Z-score is computed as soon as 2 readings exist in the rolling window, but with very few data points the mean and standard deviation are not yet representative. If only 1 reading (or none) is available, the Z-score reports as unavailable.
+- The Z-score is computed as soon as 2 readings exist in the rolling window, but with very few data points the mean and standard deviation are not yet representative.
 - When all readings are identical (stdev = 0), the Z-score is reported as `0.0` (exactly at the mean).
-- The carbon gate defaults to `False` while the Z-score is unavailable, so charging falls back to the scheduled windows (overnight and midday).
-- The 30-day statistics become accurate after 30 days but are used only for display; they do not affect charging decisions.
+- The carbon gate defaults to `False` while the Z-score is unavailable, so charging falls back to the scheduled windows.
+- On first install the integration automatically backfills up to 30 days of CO₂ history from the Home Assistant Recorder.
+- Rolling history is persisted through restarts, so the integration does not re-warm from scratch after a reboot.
 
 ---
 
 ## Troubleshooting
 
 **The charger isn't turning on even on clean-grid days.**
-- Check that `ev_connected` is `on`. If not, verify the **Connection Attribute** and **Not-Connected Value** settings match your charger's actual attributes (look in Developer Tools → States).
-- Confirm `ev_low_carbon_now` is `True`. If not, check the Z-score value and your chosen sensitivity mode.
-- Make sure the charge mode select is set to `auto`.
+- Check that `ev_connected` is `on`. If not, verify the **Connection Attribute** and **Not-Connected Value** settings match your charger's actual attributes (check Developer Tools → States).
+- Confirm `ev_low_carbon_now` is `on`. If not, check the Z-score value and your chosen sensitivity mode.
+- Make sure the `ev_charge_mode` select is set to `auto`.
 
 **The Z-score shows as unavailable.**
-- The integration needs ~7 days of accumulated readings. Check the logs for warmup messages.
-- If restarting HA causes temporary unavailability, this is expected — statistics rebuild within a few minutes from persisted history.
+- The integration needs at least 2 readings to compute a Z-score. After a fresh install, wait a few minutes for the first backfill to complete.
+- Check the HA logs (filter by `carbon_aware_ev_charging`) for warmup messages.
 
 **I want to charge right now regardless of carbon.**
-- Set the `ev_charge_mode` entity (or the select card in your dashboard) to `force_on`.
+- Set the `ev_charge_mode` entity to `force_on`.
+
+**A HA Repair issue appeared about a sensor being unavailable.**
+- The CO₂ or fossil fuel sensor has been returning no data for more than 30 minutes. Check the Electricity Maps integration or whichever integration provides your carbon data. The repair issue clears automatically once the sensor recovers.
 
 **The fossil fuel sensor is from a different source / has different units.**
-- Any HA sensor that exposes a 0–100 numeric percentage will work. Just select it in step 1 of the configuration.
+- Any HA sensor that exposes a 0–100 numeric percentage will work. Select it in Step 1 of the configuration.
 
 ---
 
@@ -446,7 +543,7 @@ The Z-score requires approximately **7 days of CO₂ data** before it becomes me
 
 Bug reports and pull requests are welcome at [github.com/andrewreaganm/carbon-aware-ev-charging](https://github.com/andrewreaganm/carbon-aware-ev-charging).
 
-If you have tested this integration with a charger other than Emporia and it works, please open an issue to let us know so we can update the compatibility list. If it does not work, feel free to create an issue.
+If you have tested this integration with a charger other than Emporia and it works, please open an issue to let us know so we can update the compatibility list.
 
 ---
 
