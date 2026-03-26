@@ -49,8 +49,10 @@ from custom_components.carbon_aware_ev_charging.const import (
 from custom_components.carbon_aware_ev_charging.coordinator import EVCarbonCoordinator
 
 # ── Deterministic history: mean ≈ 198.5, stdev ≈ 8.66 — passes warmup guards ─
+# _BASE_TS is computed at import time so entries always fall within the 7-day
+# rolling window regardless of when tests are run.
 _HISTORY_VALS = [200 + (i % 30 - 15) for i in range(100)]
-_BASE_TS = datetime(2026, 3, 16, 8, 0, tzinfo=UTC).timestamp()
+_BASE_TS = datetime.now(UTC).timestamp() - 3600  # 1 h ago — well within 7 days
 _HISTORY = [(_BASE_TS - i * 300, float(v)) for i, v in enumerate(_HISTORY_VALS)]
 
 
@@ -95,6 +97,7 @@ def _make_coord(
     coord._last_led_state = None
     coord._co2_unavailable_since = None
     coord._fossil_unavailable_since = None
+    coord._roadtrip_limit_applied_for = None
     coord.last_update_success = True
     return coord
 
