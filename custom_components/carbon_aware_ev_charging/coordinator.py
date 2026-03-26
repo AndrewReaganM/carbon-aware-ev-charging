@@ -250,6 +250,9 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
         self._unsub_state_listeners: list = []
         self._co2_unavailable_since: datetime | None = None
         self._fossil_unavailable_since: datetime | None = None
+        # Tracks which roadtrip event (summary, start) we have already applied a
+        # charge-limit for, so we only call _async_set_charge_limit once per event.
+        self._roadtrip_limit_applied_for: tuple[str, datetime] | None = None
 
     @callback
     def async_subscribe_state_changes(self) -> None:
@@ -848,6 +851,36 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
 
         # ── Charger switch ────────────────────────────────────────────────
         if not cfg.dry_run:
+            # Set the charge limit as soon as a roadtrip prep window is active and
+            # the charger is (or is about to be) on.  We do this outside the
+            # turn-on transition block so it fires even when the charger is already
+            # running (e.g. carbon_good turned it on before the prep window opened).
+            # The _roadtrip_limit_applied_for guard ensures we only call the service
+            # once per event, not on every poll.
+            rt = decision.active_roadtrip
+            if (
+                want_on
+                and rt is not None
+                and rt.soc_target is not None
+                and cfg.roadtrip_charge_limit_entity
+            ):
+                event_key = (rt.summary, rt.start)
+                if self._roadtrip_limit_applied_for != event_key:
+                    _LOGGER.debug(
+                        "[EV] Roadtrip prep: setting charge limit to %d%% for '%s'",
+                        rt.soc_target,
+                        rt.summary,
+                    )
+                    with contextlib.suppress(Exception):
+                        await self._async_set_charge_limit(
+                            cfg.roadtrip_charge_limit_entity,
+                            rt.soc_target,
+                        )
+                    self._roadtrip_limit_applied_for = event_key
+            elif rt is None:
+                # Prep window has ended; reset so the next event gets its limit set.
+                self._roadtrip_limit_applied_for = None
+
             if want_on and not is_on:
                 # Cooldown: prevent turn-on shortly after turn-off
                 just_reconnected = sensors.is_connected and not self._was_connected
@@ -869,17 +902,6 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
                         )
 
                 if cooldown_met:
-                    # If this is a roadtrip prep turn-on, set the charge limit first.
-                    if (
-                        decision.active_roadtrip is not None
-                        and decision.active_roadtrip.soc_target is not None
-                        and cfg.roadtrip_charge_limit_entity
-                    ):
-                        with contextlib.suppress(Exception):
-                            await self._async_set_charge_limit(
-                                cfg.roadtrip_charge_limit_entity,
-                                decision.active_roadtrip.soc_target,
-                            )
                     await self.hass.services.async_call(
                         "switch",
                         "turn_on",
