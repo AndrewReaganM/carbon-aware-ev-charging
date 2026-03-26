@@ -453,3 +453,7 @@ If you have tested this integration with a charger other than Emporia and it wor
 ## License
 
 This project is licensed under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html).
+
+## Attribution
+
+Logo provided by flaticon.com
