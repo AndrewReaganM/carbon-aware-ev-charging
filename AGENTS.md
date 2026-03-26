@@ -2,28 +2,155 @@
 
 ## What This Is
 
-A HACS custom integration for Home Assistant that charges an electric vehicle
-preferentially during low-carbon grid periods. The charging decision is driven
-by a Z-score statistical signal computed from a 7-day rolling mean/stdev of
-real-time CO₂ intensity data. Includes configurable sensitivity modes, fallback
-charging windows, dry-run testing, push notifications, and optional LED status
-feedback.
+A HACS custom integration for Home Assistant that charges an EV preferentially
+during low-carbon grid periods. The charging decision is driven by a Z-score
+statistical signal computed from a 7-day rolling mean/stdev of real-time CO₂
+intensity data. Includes configurable sensitivity modes, fallback charging
+windows, dry-run testing, push notifications, and optional LED status feedback.
+
+---
+
+## Build, Lint, Test
+
+Requires Python 3.12+, managed with `uv`.
+
+```bash
+uv sync                                         # install dev dependencies
+
+uv run pytest                                   # all tests
+uv run pytest tests/test_coordinator.py         # single file
+uv run pytest tests/test_coordinator.py::TestCarbonGate  # single class
+uv run pytest tests/test_coordinator.py::TestCarbonGate::test_fossil_high  # single test
+uv run pytest -x -q                            # fail-fast, quiet
+
+uv run ruff check .                             # lint
+uv run ruff check --fix .                       # lint + auto-fix
+uv run ruff format .                            # format
+uv run ty check                                 # type-check (Astral ty)
+
+git add -A && prek                              # run all pre-commit hooks
+```
+
+**Always `git add` before running `prek`** — it stashes unstaged changes and
+tests the staged version. Direct pushes to `main` are blocked by the
+`no-commit-to-branch` hook.
+
+After any code change: run the full test suite and prek, and fix everything
+before considering the task done.
+
+---
+
+## Code Style
+
+### General
+
+- Python 3.12+. Line length: **100**. Quote style: **double**. Indent: **spaces**.
+- Every file starts with `from __future__ import annotations`.
+- No `print()` statements — use `_LOGGER` (see Logging below).
+- No bare `except:` — always name the exception type.
+
+### Imports
+
+Isort order enforced by ruff (`I` rules):
+1. `from __future__ import annotations`
+2. stdlib (`contextlib`, `logging`, `re`, `statistics`, `collections`, `datetime`, `typing`)
+3. HA core (`homeassistant.*`)
+4. Local (`.const`, `.coordinator`, `.base_entity`)
+
+Use explicit named imports from `.const` — never `from .const import *`.
+
+### Types
+
+- All function signatures and return types must be annotated.
+- Use `X | None` (not `Optional[X]`). Use `X | Y` unions (not `Union[X, Y]`).
+- Use built-in generics: `list[str]`, `dict[str, Any]`, `tuple[float, float]`.
+- `Any` is acceptable for HA state objects and raw config dicts.
+- HA-internal attribute assignments in tests trigger false-positive
+  `invalid-assignment` errors from `ty` — these are suppressed globally for
+  `tests/**` in `pyproject.toml`. Do not add inline `# type: ignore` for these.
+- Avoid `# type: ignore` entirely unless there is no other option.
+
+### Naming
+
+- `UPPER_SNAKE_CASE` for module-level constants in `const.py`.
+- `_lower_snake` prefix for private methods and instance variables.
+- `async_*` prefix for all coroutines (mirrors HA convention).
+- `_LOGGER = logging.getLogger(__name__)` — one logger per module, module-level.
+- Test helper factories: `_make_<thing>(overrides)` pattern, returning the
+  constructed object. Override dicts use `**(overrides or {})`.
+
+### Logging
+
+Use `_LOGGER` with `%`-style formatting (enforced by `G` ruff rules):
+
+```python
+_LOGGER.debug("[EV] Some message: val=%s", val)       # correct
+_LOGGER.debug(f"[EV] Some message: val={val}")        # wrong — f-string
+```
+
+Prefix all messages with `[EV]`. Use `_LOGGER.debug` for routine poll info,
+`_LOGGER.info` for significant state transitions, `_LOGGER.warning` for
+recoverable problems, `_LOGGER.exception` (with `exc_info=True`) for errors
+with tracebacks.
+
+### Error Handling
+
+- Use `try/except SpecificError` — not `contextlib.suppress` — when the failure
+  should be **visible in the HA log**. Always log a `WARNING` or `EXCEPTION` so
+  users can diagnose problems.
+- Use `contextlib.suppress(ValueError)` only for genuinely ignorable parse
+  errors (e.g. `float()` on a bad string).
+- Service calls that must succeed (e.g. setting charge limit) use
+  `blocking=True` so errors surface immediately.
+- Fire-and-forget service calls (charger on/off, LED, notifications) use
+  `blocking=False` — failures are caught at the `_control_devices` level.
+- The `_control_devices` wrapper catches only `ServiceNotFound` (boot-time
+  platform not yet loaded). Any other exception propagates and marks the
+  coordinator unavailable.
+- After fixing a recoverable error (e.g. service now available), the guard
+  variable (`_roadtrip_limit_applied_for`, `_last_led_state`) must **only be
+  updated on success**, never before the call, so a failure is retried next poll.
+
+### Dataclasses
+
+Internal pipeline structs (`_ResolvedConfig`, `_SensorReadings`, `_Statistics`,
+`_ChargingDecision`) are `@dataclass`. Use `field(default=None)` for optional
+fields with a default. Never add business logic to dataclasses.
+
+### Tests
+
+- Tests use `pytest-homeassistant-custom-component` (`hass` fixture from HA).
+- `asyncio_mode = "auto"` — no `@pytest.mark.asyncio` needed on individual
+  tests unless the file mixes sync and async (roadtrip tests use it explicitly).
+- Group related tests in classes: `class TestFeatureName:`.
+- Module-level `_make_<thing>` factory functions for shared fixtures; keep them
+  close to the tests that use them.
+- Tests that bypass `__init__` via `EVCarbonCoordinator.__new__` **must** set
+  every instance variable that `__init__` sets. Check `coordinator.py:__init__`
+  when adding new instance variables and update all three `_make_coord` /
+  `_make_coordinator` helpers in `test_coordinator.py`,
+  `test_coordinator_integration.py`, and `test_roadtrip.py`.
+- Integration test history (`_HISTORY` / `_BASE_TS`) must use
+  `datetime.now(UTC)` — never a hardcoded date — so entries always fall within
+  the 7-day rolling window regardless of when tests run.
+- `CONF_DRY_RUN: True` is set in all test coordinators by default so no real
+  HA service calls are made. Tests that need to exercise device control bypass
+  dry-run and mock `hass.services.async_call` with `AsyncMock`.
 
 ---
 
 ## Repository Layout
 
 ```
-custom_components/carbon_aware_ev_charging/   Core integration code
-├── __init__.py          Entry setup/unload, storage cleanup, options listener
-├── manifest.json        HACS metadata (name, version, iot_class)
-├── const.py             All constants — thresholds, defaults, entity IDs, status maps
-├── coordinator.py       DataUpdateCoordinator: polls CO₂ data, computes Z-score,
-│                        controls charger and LED, persists rolling history
+custom_components/carbon_aware_ev_charging/
+├── __init__.py          Setup/unload, storage cleanup, options listener
+├── manifest.json        HACS metadata — single source of truth for VERSION
+├── const.py             All constants, thresholds, defaults, STATUS_MAP
+├── coordinator.py       DataUpdateCoordinator: poll → stats → decision → control
 ├── config_flow.py       Three-step UI wizard + options flow
-├── sensor.py            Z-score sensor, charging status sensor, charge rate/current
+├── sensor.py            Z-score, charging status, charge rate/current sensors
 ├── binary_sensor.py     ev_connected binary sensor
-├── select.py            ev_charge_mode and ev_carbon_mode select entities
+├── select.py            ev_charge_mode and ev_carbon_mode selects
 ├── number.py            ev_departure_hour number entity
 ├── switch.py            Fallback-window enable/disable switches
 ├── base_entity.py       Shared CoordinatorEntity base class
@@ -32,347 +159,101 @@ custom_components/carbon_aware_ev_charging/   Core integration code
 └── translations/en.json English translations
 
 tests/
-├── conftest.py                    pytest-homeassistant-custom-component fixtures
-├── test_coordinator.py            Unit tests for Z-score, decision logic, staleness
-├── test_coordinator_integration.py Integration tests (full HA hass fixture)
-├── test_config_flow.py            Config and options flow tests
-├── test_entities.py               Sensor/select/number/binary-sensor entity tests
-├── test_init.py                   Setup, unload, migrate, storage removal tests
-└── test_diagnostics.py            Diagnostics redaction tests
-
-ev_dashboard.yaml         Ready-made operational HA dashboard (copy into HA)
-hacs.json                 HACS category declaration
-pyproject.toml            Python project metadata, dev deps, ruff/ty config
-prek.toml                 Pre-commit hook config (ruff, ty, yaml/toml/json checks)
-.releaserc.json           semantic-release config (bumps version in manifest + pyproject)
-.github/workflows/
-└── release.yml           CI pipeline: lint → type-check → test → HACS/hassfest validate → release
+├── conftest.py                      auto_enable_custom_integrations fixture
+├── test_coordinator.py              Unit tests: Z-score math, decision branches
+├── test_coordinator_integration.py  Integration tests: full HA hass fixture
+├── test_roadtrip.py                 Roadtrip prep + charge-limit tests
+├── test_config_flow.py              Config and options flow tests
+├── test_entities.py                 Sensor/select/number/binary-sensor tests
+├── test_init.py                     Setup, unload, migrate, storage tests
+└── test_diagnostics.py              Diagnostics redaction tests
 ```
 
 ---
 
 ## Architecture
 
-### Coordinator (`coordinator.py`)
+### Coordinator update pipeline (every 5 min + reactive on state changes)
 
-`EVCarbonCoordinator` is the heart of the integration. It:
+1. `_resolve_config()` — merge `entry.data` + `entry.options` with `PREFERENCE_DEFAULTS`
+2. `_read_sensors()` — parse CO₂, fossil %, charger state, power sensor
+3. `_update_statistics()` — append to deques, prune to time window, compute Z-score
+4. `_evaluate_charging()` — determine `status_enum` and `predicted_state`
+5. `_control_devices()` — actuate charger switch and LED (dry-run, dwell, cooldown)
 
-1. Polls every 5 minutes (and reacts immediately to state changes on CO₂,
-   fossil-fuel, and charger entities).
-2. Maintains two in-memory time-bounded `deque`s:
-   - `_deque_7d` — up to `DEQUE_7D` (2 016) readings, pruned to 7 days
-   - `_deque_30d` — up to `DEQUE_30D` (8 640) readings, pruned to 30 days
-3. On first install (empty deques), backfills history from the HA recorder so
-   the Z-score becomes useful immediately rather than after 7 days.
-4. Persists deques to `hass.helpers.storage` so rolling stats survive restarts.
-5. Runs a four-phase update pipeline each cycle:
-   - `_resolve_config()` — merges `entry.data` + `entry.options` with defaults
-   - `_read_sensors()` — parses CO₂, fossil %, charger state, power sensor
-   - `_update_statistics()` — appends reading, prunes deques, computes Z-score
-   - `_evaluate_charging()` — determines `status_enum` and `predicted_state`
-   - `_control_devices()` — actuates charger switch and LED (respects dry-run,
-     dwell, and cooldown guards)
-
-### Decision chain (`_evaluate_charging`)
-
-Priority order (highest wins):
+### Decision chain priority (highest wins)
 
 ```
-charge_mode == force_off  → STATUS_FORCED_OFF   (paused)
-charge_mode == force_on   → STATUS_OVERRIDE     (charging)
-carbon gate open          → STATUS_LOW_CARBON   (charging)
-roadtrip prep window      → STATUS_ROADTRIP_PREP (charging)
-departure prep window     → STATUS_DEPARTURE_PREP (charging)
-data unavailable + fallback window → STATUS_FALLBACK (charging)
-data stale                → STATUS_DATA_STALE   (paused)
-data unavailable          → STATUS_WAITING_FOR_DATA (paused)
-fossil % ≥ 75             → STATUS_FOSSIL_HIGH  (paused)
-z_score ≥ threshold       → STATUS_GRID_DIRTY   (paused)
-car not connected         → STATUS_NOT_CONNECTED (paused, overlaid last)
+force_off              → STATUS_FORCED_OFF      (paused)
+force_on               → STATUS_OVERRIDE        (charging)
+carbon gate open       → STATUS_LOW_CARBON      (charging)
+roadtrip prep window   → STATUS_ROADTRIP_PREP   (charging)
+departure prep window  → STATUS_DEPARTURE_PREP  (charging)
+unavail + fallback win → STATUS_FALLBACK         (charging)
+data stale             → STATUS_DATA_STALE      (paused)
+data unavailable       → STATUS_WAITING_FOR_DATA (paused)
+fossil ≥ 75%           → STATUS_FOSSIL_HIGH     (paused)
+z_score ≥ threshold    → STATUS_GRID_DIRTY      (paused)
+car not connected      → STATUS_NOT_CONNECTED   (paused, overlaid last)
 ```
 
-`STATUS_MAP` in `const.py` is the single source of truth mapping each
-`status_enum` to `(predicted_state, chargeable)`. Never duplicate this logic.
+`STATUS_MAP` in `const.py` maps `status_enum → (predicted_state, chargeable)`.
+Never duplicate this logic — always extend `STATUS_MAP`.
 
-### Roadtrip Prep feature
-
-The integration watches configured HA calendar entities for events whose
-titles match `[PREFIX optional_soc% optional_lead_h]` and starts charging
-ahead of the event start to hit a target SoC.
-
-**Title format** — all optional fields after PREFIX are individually optional:
-```
-[PREFIX soc% lead_h]   e.g. [IONIQ 90% 4h]
-[IONIQ 80%]            → soc=80, lead=default
-[IONIQ 6h]             → soc=None, lead=6
-[IONIQ]                → soc=None, lead=default
-```
-Regex: `\[(?P<prefix>[^\]0-9%h]+?)(?:\s+(?P<soc>\d+)%)?(?:\s+(?P<lead>\d+)h)?\]`
-Prefix matching is case-insensitive.
-
-**Multiple events**: all matching events in the 24-hour lookahead window are
-merged into one synthetic event with the **earliest start** and the **highest
-SoC target** across all overlapping events.
-
-**SoC gate**: if a SoC sensor is configured and the current SoC ≥ target, the
-roadtrip prep branch is skipped (no-op) — charger stays off unless another
-branch fires.
-
-**Charge limit**: before turning the charger on for roadtrip prep, if a charge
-limit entity is configured, `_async_set_charge_limit()` is called first. The
-entity domain is auto-detected: `number` → `number.set_value`; `select` →
-`select.select_option`.
-
-**LED**: roadtrip prep uses a distinct cyan colour (`LED_COLOUR["roadtrip"] =
-[180, 90]`) rather than the generic scheduled (red) colour.
-
-### Carbon gate
-
-```
-carbon_good = (
-    not carbon_data_unavailable
-    AND z_score < effective_threshold   # threshold + 0.4σ hysteresis when already on
-    AND fossil_pct < 75                 # hard floor always enforced
-)
-```
-
-### Z-score
-
-```
-z_score = (co2 - mean_7d) / stdev_7d
-```
-
-When `stdev_7d == 0` (all readings identical), `z_score = 0.0`. When CO₂ is
-unavailable, the last good Z-score is held rather than returning `None`, to
-prevent spurious state changes.
-
-### Dwell and cooldown guards
-
-- **Dwell** (`MIN_DWELL_MINUTES = 15`): once the charger turns on, it stays on
-  for at least 15 minutes before the integration will turn it off again.
-- **Cooldown** (`MIN_COOLDOWN_MINUTES = 10`): after the charger turns off, the
-  integration waits 10 minutes before turning it on again.
-- Both guards are bypassed in `force_on` mode and on initial car reconnect.
-
-### Staleness detection
-
-- **Soft stale** (> 30 min since last update): flag raised in logs and UI;
-  carbon data is still used.
-- **Hard stale** (> 60 min, 3 consecutive polls): sensor treated as unavailable;
-  falls back to scheduled windows.
-
----
-
-## Key Constants (`const.py`)
+### Key constants
 
 | Constant | Value | Purpose |
 |---|---|---|
-| `DOMAIN` | `"carbon_aware_ev_charging"` | Integration domain |
-| `THRESHOLD_LENIENT` | `0.92` | Z-score gate for Lenient mode (~82% of hours) |
-| `THRESHOLD_MODERATE` | `0.47` | Z-score gate for Moderate mode (~68% of hours) |
-| `THRESHOLD_STRICT` | `-0.18` | Z-score gate for Strict mode (~43% of hours) |
-| `FOSSIL_HARD_FLOOR` | `75.0` | Max fossil % before carbon gate is forced closed |
-| `HYSTERESIS_SIGMA` | `0.4` | Added to threshold when charger is already on |
-| `DEQUE_7D` | `2016` | Max rolling-window readings (7d × 288/day) |
-| `DEQUE_30D` | `8640` | Max rolling-window readings (30d × 288/day) |
+| `THRESHOLD_LENIENT` | `0.92` | Z-score gate (~82% of hours) |
+| `THRESHOLD_MODERATE` | `0.47` | Z-score gate (~68% of hours) |
+| `THRESHOLD_STRICT` | `-0.18` | Z-score gate (~43% of hours) |
+| `FOSSIL_HARD_FLOOR` | `75.0` | Max fossil % before gate forced closed |
+| `HYSTERESIS_SIGMA` | `0.4` | Added to threshold when charger already on |
 | `MIN_DWELL_MINUTES` | `15` | Minimum on-time before turning charger off |
-| `MIN_COOLDOWN_MINUTES` | `10` | Minimum off-time before turning charger back on |
-| `DEPARTURE_PREP_HOURS` | `3` | Hours before departure hour that prep charging begins |
-| `STALE_DATA_MINUTES` | `30` | Soft-stale threshold (minutes) |
-| `STALE_HARD_MINUTES` | `60` | Hard-stale threshold (minutes) |
-| `STALE_HARD_CONSECUTIVE` | `3` | Consecutive hard-stale polls before unavailable |
-| `SENSOR_UNAVAILABLE_REPAIR_MINUTES` | `30` | Minutes before HA Repair issue is raised |
+| `MIN_COOLDOWN_MINUTES` | `10` | Minimum off-time before turning charger on |
 
-### Entity unique ID suffixes
+### Entity unique ID suffixes — never change after release
 
-Entity unique IDs are `{entry.entry_id}_{suffix}`. **Never change these
-values** — doing so orphans the entity in HA and loses its history.
-
-| Constant | Suffix | Entity |
-|---|---|---|
-| `ENTITY_ID_Z_SCORE` | `co2_z_score` | Z-score sensor |
-| `ENTITY_ID_CHARGING_STATUS` | `ev_charging_status` | Status enum sensor |
-| `ENTITY_ID_CHARGE_RATE_KW` | `ev_charge_rate_kw` | Charge power sensor |
-| `ENTITY_ID_CHARGE_CURRENT` | `ev_charge_current` | Charge current sensor |
-| `ENTITY_ID_CONNECTED` | `ev_connected` | Car-connected binary sensor |
-| `ENTITY_ID_LOW_CARBON_NOW` | `ev_low_carbon_now` | Carbon gate sensor |
-| `ENTITY_ID_CHARGE_MODE` | `ev_charge_mode` | Charge mode select |
-| `ENTITY_ID_CARBON_MODE` | `ev_carbon_mode` | Carbon sensitivity select |
-| `ENTITY_ID_DEPARTURE_HOUR` | `ev_departure_hour` | Departure hour number |
+`{entry.entry_id}_{suffix}`. Changing a suffix orphans the entity in HA.
 
 ---
 
-## Entities Created
-
-One logical HA device is registered per config entry, grouping:
-
-| Entity type | Entity | Description |
-|---|---|---|
-| `sensor` | `ev_co2_z_score` | Current Z-score (σ, 2 dp); `None` during warmup |
-| `sensor` | `ev_charging_status` | Status enum (device_class: enum) with human-readable reason |
-| `sensor` | `ev_low_carbon_now` | `True` when carbon gate is open |
-| `sensor` | `ev_charge_rate_kw` | Current charge power in kW (requires power sensor) |
-| `sensor` | `ev_charge_current` | Current charge current in amps |
-| `binary_sensor` | `ev_connected` | `on` when car is plugged in |
-| `select` | `ev_charge_mode` | `auto` / `force_on` / `force_off` |
-| `select` | `ev_carbon_mode` | `Lenient` / `Moderate` / `Strict` |
-| `number` | `ev_departure_hour` | Hour (0–23) to begin departure-prep charging |
-| `switch` | fallback window 1 | Enable/disable overnight fallback window |
-| `switch` | fallback window 2 | Enable/disable midday fallback window |
-
----
-
-## Config Flow (`config_flow.py`)
-
-Three setup steps, all validated against live HA states:
-
-**Step 1 — Sensors & Charger** (stored in `entry.data`)
-- CO₂ intensity sensor (`sensor` domain, required)
-- Fossil fuel % sensor (`sensor` domain, required)
-- Charger switch (`switch` domain, required)
-- Connection attribute name (default: `icon_name`)
-- Not-connected attribute value (default: `CarNotConnected`)
-- Charger power sensor (`sensor` domain, optional)
-
-**Step 2 — LED Indicator** (stored in `entry.data`, both optional)
-- RGB indicator light (`light` domain)
-- LED effect selector (`select` domain)
-
-**Step 3 — Preferences** (stored in `entry.options`, changeable without re-wizard)
-- Carbon sensitivity mode (`Lenient` / `Moderate` / `Strict`)
-- Departure hour (0–23)
-- Departure days (multi-select, Mon–Sun)
-- Dry-run toggle
-- Fallback window 1 enable/start/end (default: 22:00–06:00)
-- Fallback window 2 enable/start/end (default: 11:00–15:00)
-- Notification service (optional, must start with `notify.`)
-
-An **options flow** (`EVCarbonChargerOptionsFlow`) exposes all Step 3 fields
-for reconfiguration via **Settings → Devices & Services → Configure**.
-
-### Config entry storage split
-
-`entry.data` holds entity IDs and hardware config (immutable after setup).
-`entry.options` holds user preferences (mutable via options flow). The
-coordinator always resolves the merged view via `_resolve_config()`, which
-applies `entry.options` over `entry.data` with `PREFERENCE_DEFAULTS` as the
-final fallback.
-
----
-
-## Development Setup
-
-Requires Python 3.12+, managed with `uv`.
-
-```bash
-uv sync          # install all dev dependencies into .venv
-```
-
-### Running tests
-
-```bash
-uv run pytest                        # all tests
-uv run pytest tests/test_coordinator.py  # one file
-uv run pytest -x -q                  # fail-fast, quiet
-```
-
-Tests use `pytest-homeassistant-custom-component` which provides the full HA
-`hass` fixture. The `conftest.py` enables custom integrations via
-`auto_enable_custom_integrations`.
-
-### Linting and type checking
-
-```bash
-uv run ruff check .          # lint
-uv run ruff check --fix .    # lint + auto-fix
-uv run ruff format .         # format
-uv run ty check              # type check (Astral ty)
-```
-
-Pre-commit hooks (via `prek.toml`) run ruff and ty automatically on commit.
-Direct pushes to `main` are blocked by the `no-commit-to-branch` hook.
-
-### Commit message convention
-
-This repo uses **Conventional Commits** enforced by semantic-release:
+## Commit Convention (Conventional Commits → semantic-release)
 
 ```
-feat: add X         → minor version bump
-fix: correct Y      → patch version bump
-feat!: breaking Z   → major version bump
-chore: ...          → no release
-docs: ...           → no release
-test: ...           → no release
-refactor: ...       → no release (unless feat/fix)
+feat: add X       → minor bump    fix: correct Y  → patch bump
+feat!: break Z    → major bump    chore/docs/test/refactor → no release
 ```
-
-The CI pipeline auto-releases on every push to `main` if all checks pass.
-
----
-
-## CI Pipeline (`.github/workflows/release.yml`)
-
-Jobs run in parallel, all must pass before `release`:
-
-| Job | Tool | What it checks |
-|---|---|---|
-| `lint` | `ruff check` + `ruff format --check` | Style and code quality |
-| `type-check` | `ty check` | Static types |
-| `test` | `pytest` | All unit and integration tests |
-| `validate-hacs` | `hacs/action` | HACS manifest correctness |
-| `validate-hassfest` | `home-assistant/actions/hassfest` | HA integration correctness |
-| `release` | `semantic-release` | Cuts GitHub release, bumps version |
-
-The `release` job bumps the version in `pyproject.toml` and
-`manifest.json` via the `@semantic-release/exec` plugin, then commits
-`chore(release): X.Y.Z [skip ci]` back to `main`.
 
 ---
 
 ## Adding a New Entity
 
-1. Choose a unique ID suffix string and add it to `const.py` as
-   `ENTITY_ID_<NAME> = "<suffix>"`. Never change it after release.
-2. Add the platform string to `PLATFORMS` in `const.py` if it is a new
-   platform type.
-3. Implement the entity in the appropriate platform file, inheriting from
-   `CarbonAwareEVChargingEntity` in `base_entity.py`.
-4. Register it in the platform's `async_setup_entry` function.
+1. Add `ENTITY_ID_<NAME> = "<suffix>"` to `const.py`. Never change it post-release.
+2. Add platform to `PLATFORMS` in `const.py` if new platform type.
+3. Implement entity inheriting `CarbonAwareEVChargingEntity` from `base_entity.py`.
+4. Register in platform `async_setup_entry`.
 5. Add translation keys to `strings.json` and `translations/en.json`.
-6. Write tests in the relevant `tests/test_*.py` file.
-
----
+6. Write tests.
 
 ## Modifying the Decision Logic
 
-All charging-state logic lives in `coordinator.py:_evaluate_charging`. The
-mapping from `status_enum` to `(predicted_state, chargeable)` is the
-`STATUS_MAP` dict in `const.py`. Changes to the decision chain should:
-
-1. Add any new `STATUS_*` constants to `const.py`.
+1. Add `STATUS_*` constant to `const.py`.
 2. Update `CHARGING_STATUSES` list and `STATUS_MAP` dict in `const.py`.
 3. Add translation keys in `strings.json` and `translations/en.json`.
 4. Update `_evaluate_charging` in `coordinator.py`.
-5. Add test cases covering the new branch in `tests/test_coordinator.py`.
+5. Add test cases in `tests/test_coordinator.py`.
 
 ---
 
-## Known Issues / Quirks
+## Known Quirks
 
-- `entry.data` entity IDs cannot be changed after setup without re-adding the
-  integration. Hardware-level config is intentionally separated from preferences.
-- The Z-score requires at least 2 readings before it has a value, and is only
-  statistically meaningful after ~7 days. During warmup, the carbon gate
-  defaults to `False` (falls back to scheduled windows).
-- When `stdev_7d == 0` (all readings identical, e.g. immediately after install
-  with a single backfilled value), `z_score` is returned as `0.0`.
-- The recorder backfill runs only on first install (empty deques). Subsequent
-  restarts restore from the integration's own `hass.helpers.storage` file.
-- Config entry schema version is `1`. Any breaking change to `entry.data`
-  structure requires an `async_migrate_entry` migration path in `__init__.py`.
-- Do not use `template:` inside HA packages — it is a top-level singleton and
-  the last definition silently wins. The included `ev_dashboard.yaml` avoids
-  this pattern.
-- The `ev_dashboard.yaml` contains three placeholder entity IDs
-  (`YOUR_CO2_SENSOR`, `YOUR_FOSSIL_SENSOR`, `YOUR_CHARGER_SWITCH`) that must
-  be replaced before use.
+- `entry.data` entity IDs are immutable after setup — hardware config is
+  separated from preferences intentionally.
+- Z-score needs ≥ 2 readings; statistically meaningful only after ~7 days.
+  During warmup the carbon gate defaults `False` (falls back to scheduled windows).
+- When `stdev_7d == 0` (all readings identical), `z_score = 0.0` by definition.
+- Recorder backfill runs only on first install (empty deques). Subsequent
+  restarts restore from `hass.helpers.storage`.
+- Config entry schema version is `1`. Breaking changes to `entry.data` require
+  an `async_migrate_entry` path in `__init__.py`.

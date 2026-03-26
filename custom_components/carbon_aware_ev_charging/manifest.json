@@ -4,12 +4,12 @@
   "after_dependencies": [
     "recorder"
   ],
-  "codeowners": [],
+  "codeowners": ["@andrewreaganm"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/andrewmassey/carbon-aware-ev-charging",
+  "documentation": "https://github.com/andrewreaganm/carbon-aware-ev-charging",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/andrewmassey/carbon-aware-ev-charging/issues",
+  "issue_tracker": "https://github.com/andrewreaganm/carbon-aware-ev-charging/issues",
   "requirements": [],
   "version": "1.8.5"
 }
