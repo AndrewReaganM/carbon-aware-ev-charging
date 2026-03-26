@@ -101,6 +101,7 @@ def _make_coordinator(
     coord._was_connected = False
     coord._stale_hard_count = 0
     coord._last_led_state = None
+    coord._roadtrip_limit_applied_for = None
     coord.last_update_success = True
     return coord
 
@@ -627,3 +628,150 @@ class TestAsyncSetChargeLimit:
         await coord._async_set_charge_limit("number.nonexistent", 90)
 
         mock_async_call.assert_not_called()
+
+
+# ── _async_control_devices_inner: charge-limit set when already on ────────────
+
+
+class TestChargeLimitAlreadyOn:
+    """Charge limit must be set even when the charger is already running.
+
+    Regression tests for the bug where the charge limit was only set inside the
+    ``want_on and not is_on`` branch, meaning it was silently skipped whenever
+    the charger was already running (e.g. carbon_good turned it on before the
+    prep window opened).
+    """
+
+    def _make_coord_with_mocks(
+        self, hass: HomeAssistant, *, dry_run: bool = False
+    ) -> tuple[EVCarbonCoordinator, AsyncMock]:
+        coord = _make_coordinator(
+            hass,
+            options_overrides={
+                CONF_DRY_RUN: dry_run,
+                CONF_ROADTRIP_CHARGE_LIMIT_ENTITY: "number.charge_limit",
+            },
+        )
+        mock_async_call = AsyncMock()
+        mock_services = MagicMock()
+        mock_services.async_call = mock_async_call
+        coord.hass = MagicMock()
+        coord.hass.services = mock_services
+        coord.hass.states = hass.states
+        return coord, mock_async_call
+
+    def _make_decision_with_roadtrip(
+        self,
+        *,
+        should_charge: bool = True,
+        soc_target: int | None = 80,
+        charger_is_on: bool = True,
+    ) -> tuple[_ChargingDecision, _SensorReadings, _ResolvedConfig, _Statistics]:
+        now = _now_utc()
+        event = RoadtripEvent(
+            summary="[IONIQ 80% 4h]",
+            start=now + timedelta(hours=2),
+            soc_target=soc_target,
+            lead_hours=4,
+        )
+        decision = _ChargingDecision(
+            predicted_state="on",
+            should_charge=should_charge,
+            carbon_good=True,
+            status_enum=STATUS_LOW_CARBON,  # carbon preempted roadtrip
+            status_reason="Charging — grid is clean",
+            led_state="on",
+            active_roadtrip=event,
+        )
+        sensors = _make_sensors({"charger_is_on": charger_is_on, "charger_state": None})
+        cfg = _make_resolved_config(
+            {
+                "dry_run": False,
+                "roadtrip_charge_limit_entity": "number.charge_limit",
+            }
+        )
+        stats = _make_stats()
+        return decision, sensors, cfg, stats
+
+    @pytest.mark.asyncio
+    async def test_charge_limit_set_when_charger_already_on(self, hass: HomeAssistant):
+        """Charge limit is applied even when the charger is already running."""
+        hass.states.async_set("number.charge_limit", "60")
+        coord, mock_async_call = self._make_coord_with_mocks(hass)
+        decision, sensors, cfg, stats = self._make_decision_with_roadtrip(charger_is_on=True)
+
+        await coord._async_control_devices_inner(cfg, sensors, decision, stats)
+
+        # number.set_value should have been called with soc_target=80
+        calls = [c for c in mock_async_call.call_args_list if c.args[0] == "number"]
+        assert len(calls) == 1
+        assert calls[0].args[0] == "number"
+        assert calls[0].args[1] == "set_value"
+        assert calls[0].args[2]["value"] == 80
+
+    @pytest.mark.asyncio
+    async def test_charge_limit_only_set_once_per_event(self, hass: HomeAssistant):
+        """Charge limit service is called only once per roadtrip event, not every poll."""
+        hass.states.async_set("number.charge_limit", "60")
+        coord, mock_async_call = self._make_coord_with_mocks(hass)
+        decision, sensors, cfg, stats = self._make_decision_with_roadtrip(charger_is_on=True)
+
+        # First poll — should set limit
+        await coord._async_control_devices_inner(cfg, sensors, decision, stats)
+        # Second poll with same event — should NOT set limit again
+        await coord._async_control_devices_inner(cfg, sensors, decision, stats)
+
+        number_calls = [c for c in mock_async_call.call_args_list if c.args[0] == "number"]
+        assert len(number_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_charge_limit_reset_after_prep_window_ends(self, hass: HomeAssistant):
+        """After prep window ends, _roadtrip_limit_applied_for is reset so next event works."""
+        hass.states.async_set("number.charge_limit", "60")
+        coord, _ = self._make_coord_with_mocks(hass)
+        decision, sensors, cfg, stats = self._make_decision_with_roadtrip(charger_is_on=True)
+
+        # Simulate first event prep window
+        await coord._async_control_devices_inner(cfg, sensors, decision, stats)
+        assert coord._roadtrip_limit_applied_for is not None
+
+        # Simulate prep window ending (no active roadtrip)
+        no_rt_decision = _ChargingDecision(
+            predicted_state="off",
+            should_charge=False,
+            carbon_good=False,
+            status_enum="grid_dirty",
+            status_reason="Paused",
+            led_state="off",
+            active_roadtrip=None,
+        )
+        await coord._async_control_devices_inner(cfg, sensors, no_rt_decision, stats)
+        assert coord._roadtrip_limit_applied_for is None
+
+    @pytest.mark.asyncio
+    async def test_no_charge_limit_when_want_off(self, hass: HomeAssistant):
+        """Charge limit is NOT set when should_charge is False (car not charging)."""
+        hass.states.async_set("number.charge_limit", "60")
+        coord, mock_async_call = self._make_coord_with_mocks(hass)
+        decision, sensors, cfg, stats = self._make_decision_with_roadtrip(
+            should_charge=False, charger_is_on=False
+        )
+
+        await coord._async_control_devices_inner(cfg, sensors, decision, stats)
+
+        number_calls = [c for c in mock_async_call.call_args_list if c.args[0] == "number"]
+        assert len(number_calls) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_charge_limit_when_soc_target_none(self, hass: HomeAssistant):
+        """No charge limit call when soc_target is None (no target configured)."""
+        hass.states.async_set("number.charge_limit", "60")
+        coord, mock_async_call = self._make_coord_with_mocks(hass)
+        decision, sensors, cfg, stats = self._make_decision_with_roadtrip(
+            soc_target=None, charger_is_on=True
+        )
+
+        await coord._async_control_devices_inner(cfg, sensors, decision, stats)
+
+        number_calls = [c for c in mock_async_call.call_args_list if c.args[0] == "number"]
+        assert len(number_calls) == 0
