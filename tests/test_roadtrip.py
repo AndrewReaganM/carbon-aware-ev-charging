@@ -594,7 +594,7 @@ class TestAsyncSetChargeLimit:
             "number",
             "set_value",
             {"entity_id": "number.charge_limit", "value": 90},
-            blocking=False,
+            blocking=True,
         )
 
     @pytest.mark.asyncio
@@ -608,7 +608,7 @@ class TestAsyncSetChargeLimit:
             "select",
             "select_option",
             {"entity_id": "select.charge_limit", "option": "90"},
-            blocking=False,
+            blocking=True,
         )
 
     @pytest.mark.asyncio
@@ -775,3 +775,23 @@ class TestChargeLimitAlreadyOn:
 
         number_calls = [c for c in mock_async_call.call_args_list if c.args[0] == "number"]
         assert len(number_calls) == 0
+
+    @pytest.mark.asyncio
+    async def test_charge_limit_retried_after_service_failure(self, hass: HomeAssistant):
+        """If the charge limit service call raises, the guard is NOT set so next poll retries."""
+        hass.states.async_set("number.charge_limit", "60")
+        coord, mock_async_call = self._make_coord_with_mocks(hass)
+        mock_async_call.side_effect = Exception("service unavailable")
+        decision, sensors, cfg, stats = self._make_decision_with_roadtrip(charger_is_on=True)
+
+        # First poll — service raises, guard must remain unset
+        await coord._async_control_devices_inner(cfg, sensors, decision, stats)
+        assert coord._roadtrip_limit_applied_for is None
+
+        # Second poll — should retry the service call
+        mock_async_call.side_effect = None  # service now works
+        await coord._async_control_devices_inner(cfg, sensors, decision, stats)
+
+        number_calls = [c for c in mock_async_call.call_args_list if c.args[0] == "number"]
+        assert len(number_calls) == 2  # called on both polls
+        assert coord._roadtrip_limit_applied_for is not None  # guard set after success

@@ -871,12 +871,18 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
                         rt.soc_target,
                         rt.summary,
                     )
-                    with contextlib.suppress(Exception):
+                    try:
                         await self._async_set_charge_limit(
                             cfg.roadtrip_charge_limit_entity,
                             rt.soc_target,
                         )
-                    self._roadtrip_limit_applied_for = event_key
+                        self._roadtrip_limit_applied_for = event_key
+                    except Exception:
+                        _LOGGER.warning(
+                            "[EV] Failed to set charge limit for '%s' — will retry next poll",
+                            rt.summary,
+                            exc_info=True,
+                        )
             elif rt is None:
                 # Prep window has ended; reset so the next event gets its limit set.
                 self._roadtrip_limit_applied_for = None
@@ -1138,14 +1144,14 @@ class EVCarbonCoordinator(DataUpdateCoordinator[EVCarbonData]):
                 "number",
                 "set_value",
                 {"entity_id": entity_id, "value": soc_target},
-                blocking=False,
+                blocking=True,
             )
         elif domain == "select":
             await self.hass.services.async_call(
                 "select",
                 "select_option",
                 {"entity_id": entity_id, "option": str(soc_target)},
-                blocking=False,
+                blocking=True,
             )
         else:
             _LOGGER.warning(
